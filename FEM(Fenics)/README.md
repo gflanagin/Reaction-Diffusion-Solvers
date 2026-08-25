@@ -250,10 +250,15 @@ workflow is safest when mesh generation and the solver are run serially. A
 parallel solver partitions/reorders local degrees of freedom, while the plain
 NumPy arrays contain no global node IDs with which to redistribute values.
 
+### 5. Optional visualization export
+
+`utilities/export_mesh_to_xdmf.py` writes an XDMF representation of a `.msh`.
+Its default files are `terrain.msh` and `terrain.xdmf`. This is useful for
+inspection in ParaView but is not required by the solver.
+
 ## Running the solver
 
-Pass the generated output directory to the solver; no mesh filenames need to be
-edited in Python:
+Call `CWD_solver.py` with --mesh-folder pointing at a folder containing the mesh files described in the previous section.
 
 ```bash
 python CWD_solver.py \
@@ -275,13 +280,6 @@ match the loaded mesh. Individual `--mesh`, `--land-cover-classes`,
 and override folder discovery when needed. `--output-folder` selects where the solver writes
 `CWD_S`, `CWD_I`, `CWD_D`, `CWD_E`, and land-cover visualization XDMF/HDF5
 files; it defaults to `solver_outputs` and contains no user-specific path.
-
-### 6. Optional visualization export
-
-`utilities/export_mesh_to_xdmf.py` writes an XDMF representation of a `.msh`.
-Its default files are `terrain.msh` and `terrain.xdmf`. This is useful for
-inspection in ParaView but is not required by `CWD_model.py`, which reads the
-Gmsh file directly.
 
 ## Land-cover mappings
 
@@ -336,43 +334,3 @@ python CWD_solver.py \
 - `resample_land_cover_on_existing_mesh.py` — regenerates the two `.npy` arrays
   for an already-created mesh using saved coordinate offsets.
 - `export_mesh_to_xdmf.py` — optional ParaView/export helper.
-
-### `legacy_reference/`
-
-These are copied for completeness, not part of the recommended path:
-
-- `terrain_only_mmgs_mesher.py` — older terrain-only MMG route; it imports an
-  `activation` module that is not present as a source file in the original
-  folder.
-- `simple_dem_to_xdmf.py` — direct structured DEM triangulation without the
-  current MMG/land-cover pipeline.
-- `simple_msh_to_xdmf.py` — older meshio conversion.
-- `dem_to_stl.py` — early TIFF-to-STL route.
-- `older_tif_stl_diagnostic.py` — diagnostic for that STL route.
-
-## Should these scripts be combined?
-
-The two production steps should remain separate internally. Raster alignment is
-often done once, while mesh parameters are tuned and the mesh is regenerated
-many times; keeping the aligned TIFF lets those mesh iterations avoid repeating
-a potentially expensive reprojection.
-
-A small **runner/orchestrator** that invokes both steps from one command would
-make sense. It could offer `align`, `mesh`, and `all` subcommands and pass the
-aligned raster directly into the mesher. That gives a one-command workflow
-without turning the two reusable stages into one large monolithic file. I would
-not merge `land_cover_to_capacity.py` into the mesher because `CWD_model.py`
-imports that mapping at solver runtime.
-
-## Known issues observed in the existing files
-
-- `create_mesh.py` saves land-cover class codes as float64; the solver casts
-  them back to int32, so this works but is unnecessarily indirect.
-- `LC_diffusivity.py` reports water using `diffusivity == 0.0`, but the mapping
-  assigns water `0.0001`; that printed count will therefore be misleading.
-- `CWD_model.py` contains references later in the file to names not defined in
-  the displayed solver (`S_func`, `I_func`, `D_func`, `dof_x`, `dof_y`,
-  `xdmf_N`, `xdmf_W`, and `wolf_log`). These are solver issues rather than
-  mesh-generation steps, but they will prevent the original file from
-  completing as-is. They have been removed from the parameterized review copy;
-  the original file remains untouched.
