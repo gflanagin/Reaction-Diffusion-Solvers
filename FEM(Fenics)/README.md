@@ -329,8 +329,6 @@ python CWD_solver.py \
   and distributed FEniCSx assembly checks.
 - `crop_dem_valid_window.py` — optional DEM crop helper.
 - `check_raster_alignment.py` — raster metadata/class diagnostic.
-- `inspect_tif.py` and `inspect_msh.py` — older inspection aids with hard-coded
-  filenames; adapt before use.
 - `resample_land_cover_on_existing_mesh.py` — regenerates the two `.npy` arrays
   for an already-created mesh using saved coordinate offsets.
 - `export_mesh_to_xdmf.py` — optional ParaView/export helper.
