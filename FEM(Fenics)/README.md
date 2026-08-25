@@ -91,7 +91,7 @@ refer to the centered coordinates stored in `terrain.msh`. Contributions from
 overlapping Gaussians are added together. The susceptible population starts at
 carrying capacity, while the dying and environmental populations start at zero.
 
-## Recommended workflow
+## Mesh generation workflow
 
 The supported workflow scripts expose their paths and parameters as command-line
 flags. Run either script with `--help` to see the complete interface. Defaults
@@ -250,7 +250,7 @@ workflow is safest when mesh generation and the solver are run serially. A
 parallel solver partitions/reorders local degrees of freedom, while the plain
 NumPy arrays contain no global node IDs with which to redistribute values.
 
-### 5. Run the integrated parameterized solver
+## Running the solver
 
 Pass the generated output directory to the solver; no mesh filenames need to be
 edited in Python:
