@@ -1,8 +1,5 @@
 # FEM terrain mesh and land-cover workflow
 
-This folder is a copy-only reorganization of the mesh-related Python files in
-`FEM(Fenics)`. The originals have not been moved or edited.
-
 ## Software environment
 
 Run the workflow in Linux. The tested setup is WSL2 with Ubuntu 24.04 and the
