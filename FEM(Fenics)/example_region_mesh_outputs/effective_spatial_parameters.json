@@ -1,0 +1,63 @@
+{
+  "mesh": {
+    "downsample": 3,
+    "smooth": true,
+    "smoothing_sigma": 3.0,
+    "hmax": 150.0,
+    "min_land_cover_squish": 0.1
+  },
+  "diffusion_tensor": {
+    "isotropy": 0.02,
+    "kappa": 200.0,
+    "activation_steepness": 50.0,
+    "activation_cosine_threshold": 0.96,
+    "compartment_scales": {
+      "susceptible": 100.0,
+      "infected": 100.0,
+      "dying": 100.0
+    }
+  },
+  "land_cover": {
+    "diffusivity_default": 1.0,
+    "diffusivity": {
+      "0": 1.0,
+      "11": 0.0001,
+      "12": 0.3,
+      "21": 0.7,
+      "22": 0.4,
+      "23": 0.2,
+      "24": 0.05,
+      "31": 0.9,
+      "41": 0.5,
+      "42": 0.4,
+      "43": 0.45,
+      "52": 0.8,
+      "71": 0.95,
+      "81": 0.85,
+      "82": 0.8,
+      "90": 0.2,
+      "95": 0.3
+    },
+    "carrying_capacity_base": 2.0,
+    "carrying_capacity_fraction_default": 1.0,
+    "carrying_capacity_fractions": {
+      "0": 1.0,
+      "11": 0.0,
+      "12": 0.1,
+      "21": 0.8,
+      "22": 0.6,
+      "23": 0.4,
+      "24": 0.2,
+      "31": 0.4,
+      "41": 0.9,
+      "42": 0.8,
+      "43": 0.85,
+      "52": 0.75,
+      "71": 1.0,
+      "81": 0.9,
+      "82": 0.8,
+      "90": 0.35,
+      "95": 0.5
+    }
+  }
+}
