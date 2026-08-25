@@ -1,0 +1,7 @@
+Diffusion SIR via FEM. Surface created in Gmsh, and solver based on Fenicsx. For visualization, use Paraview.
+1) activate your fenicsx environment and navigate to the folder. 
+2) run convert.py to convert surface.msh to .xdmf and .h5
+	to check out the surface mesh, open surface.xdmf in Paraview
+3) run SIR.py
+	this will create new files SIR.xdmf and SIR.h5 to which the solution at each step in the simulation are written to. Every 25 frames, the progress of the simulation is printed.
+	open SIR.xdmf in Paraview to visualize the solution

@@ -1,0 +1,69 @@
+global u S0 I0 R0 b d mu2 beta dM dt Nt Nx Ny
+
+%% --- Susceptible surface ---
+subplot(1,3,1)
+h = surf(X,Y,S0');
+shading interp
+colorbar
+clim([0 30])
+zlim([0 60])
+view(45,30)
+title('Susceptible: time 0')
+
+%% --- Infectious surface ---
+subplot(1,3,2)
+rsurf = surf(X,Y,I0');
+shading interp
+colorbar
+clim([0 10])
+zlim([0 60])
+view(45,30)
+title('Infectious: time 0')
+
+%% --- Control surface ---
+subplot(1,3,3)
+csurf = surf(X,Y,squeeze(u(1,:,:))');
+shading interp
+colorbar
+clim([0 2])
+zlim([0 2])
+view(45,30)
+title('Control: time 0')
+
+S=zeros(Nt+1,Nx,Ny);
+I=zeros(Nt+1,Nx,Ny);
+R=zeros(Nt+1,Nx,Ny);
+
+global S0 I0 R0
+S = S0;
+I = I0;
+R = R0;
+
+for t=1:Nt
+    ut = squeeze(u(t,:,:));
+
+    S1 = dM \ reshape(S + dt*((b-d)*S + b*R - beta*S.*I - ut.*S), Nx*Ny,1);
+    I1 = dM \ reshape(I + dt*(beta*S.*I - mu2*I), Nx*Ny,1);
+    R1 = dM \ reshape(R + dt*(-d*R + ut.*S), Nx*Ny,1);
+
+    S = reshape(S1,Nx,Ny);
+    I = reshape(I1,Nx,Ny);
+    R = reshape(R1,Nx,Ny);
+
+    %--- update surfaces ---
+    set(h,'ZData',S','CData',S')
+    set(rsurf,'ZData',I','CData',I')
+    set(csurf,'Zdata', squeeze(u(t+1,:,:))', 'CData', squeeze(u(t+1,:,:))')
+        
+            %update titles
+    subplot(1,3,1)
+    title(sprintf('Susceptible (Week %.2f)',t*dt))
+        
+    subplot(1,3,2)
+    title(sprintf('Infectious (Weeks %.2f)',t*dt))
+    
+    subplot(1,3,3)
+    title(sprintf('Control (Weeks %.2f)',t*dt))
+    
+    drawnow
+end

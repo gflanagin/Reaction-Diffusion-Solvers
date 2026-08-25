@@ -1,0 +1,261 @@
+<?xml version="1.0"?>
+<!DOCTYPE Xdmf SYSTEM "Xdmf.dtd" []>
+<Xdmf Version="3.0" xmlns:xi="https://www.w3.org/2001/XInclude">
+  <Domain>
+    <Grid Name="mesh" GridType="Uniform">
+      <Topology TopologyType="Triangle" NumberOfElements="93174" NodesPerElement="3">
+        <DataItem Dimensions="93174 3" NumberType="Int" Format="HDF">CWD_S.h5:/Mesh/mesh/topology</DataItem>
+      </Topology>
+      <Geometry GeometryType="XYZ">
+        <DataItem Dimensions="48852 3" Format="HDF">CWD_S.h5:/Mesh/mesh/geometry</DataItem>
+      </Geometry>
+    </Grid>
+    <Grid Name="Susceptible" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.01" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_01</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.040000000000000001" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_040000000000000001</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.070000000000000007" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_070000000000000007</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.10000000000000001" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_10000000000000001</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.13" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_13</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.16" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_16</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.19" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_19</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.22" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_22</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.25" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_25</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.28000000000000003" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_28000000000000003</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.31" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_31</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.34000000000000002" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_34000000000000002</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.37" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_37</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.40000000000000002" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_40000000000000002</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.42999999999999999" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_42999999999999999</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.46000000000000002" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_46000000000000002</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.48999999999999999" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_48999999999999999</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.52000000000000002" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_52000000000000002</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.55000000000000004" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_55000000000000004</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.57999999999999996" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_57999999999999996</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.60999999999999999" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_60999999999999999</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.64000000000000001" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_64000000000000001</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.67000000000000004" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_67000000000000004</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.70000000000000007" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_70000000000000007</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.72999999999999998" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_72999999999999998</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.76000000000000001" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_76000000000000001</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.79000000000000004" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_79000000000000004</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.82000000000000006" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_82000000000000006</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.84999999999999998" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_84999999999999998</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.88" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_88</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.91000000000000003" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_91000000000000003</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.94000000000000006" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_94000000000000006</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0.96999999999999997" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/0_96999999999999997</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Susceptible" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="1" />
+        <Attribute Name="Susceptible" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="48852 1" Format="HDF">CWD_S.h5:/Function/Susceptible/1</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+  </Domain>
+</Xdmf>
