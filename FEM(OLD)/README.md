@@ -105,13 +105,56 @@ The 3D Elevation Program (3DEP) products provide suitable DEMs; choose a
 resolution appropriate for the size of the study area and the available
 computing resources.
 
-The downloaded DEM should usually be cropped to the intended simulation area
-before running the mesher. In QGIS, load the DEM and use **Raster > Extraction
-> Clip Raster by Extent** (or **Clip Raster by Mask Layer**) to save the study
-area as a new GeoTIFF. See the QGIS
-[raster extraction documentation](https://docs.qgis.org/latest/en/docs/user_manual/processing_algs/gdal/rasterextraction.html)
-for details. Cropping keeps the mesh manageable and avoids including terrain
-that is irrelevant to the simulation.
+**3DEP tiles arrive in geographic coordinates — units of degrees — and the
+mesher needs metres.** `mesh.hmax`, the Gaussian outbreak widths, and
+`diffusion_tensor.kappa` are all lengths in the mesh's own units, and the slope
+that drives the anisotropic diffusion tensor is only meaningful when horizontal
+and vertical units agree. A DEM left in degrees is wrong in all of those places.
+
+**Cropping does not fix this.** Clipping in QGIS is CRS-preserving, so a crop of
+a geographic DEM is still in degrees. Reprojection is a separate operation.
+
+`utilities/reproject_dem.py` does the crop and the reprojection in one pass, so
+an intermediate degrees-crop never has to exist:
+
+```bash
+python utilities/reproject_dem.py --dem dem.tif --output region_utm.tif \
+  --bounds -107.70 38.43 -107.22 38.91
+```
+
+With no `--target-crs` it selects the UTM zone containing the cropped region's
+centroid; with no `--bounds` it reprojects the whole tile. It refuses to run on
+an already-projected raster (`--force` overrides, for changing zone or
+resolution), and it reports the triangulation size the result would hand to the
+mesher.
+
+Two defaults are deliberate:
+
+- **Resampling is bilinear, not nearest.** Nearest-neighbour on continuous
+  elevation leaves stair-steps that become spurious slope, feeding straight into
+  `cos θ` and the diffusion tensor. Nearest is correct for the categorical NLCD
+  raster in step 2 and wrong here.
+- **Output resolution defaults to 30 m**, not the native ~10 m. Nothing
+  downstream can use finer — NLCD is natively 30 m and `mesh.hmax = 150`
+  coarsens edges to 150 m regardless — and at landscape scale 10 m produces a
+  triangulation too large to remesh. A 43 × 54 km region is ~290k vertices at
+  30 m, ~2.6M at 10 m, and ~26k at 100 m.
+
+Cropping keeps the mesh manageable and avoids terrain irrelevant to the
+simulation. To clip in QGIS instead, use **Raster > Extraction > Clip Raster by
+Extent** (or **Clip Raster by Mask Layer**; see the
+[raster extraction documentation](https://docs.qgis.org/latest/en/docs/user_manual/processing_algs/gdal/rasterextraction.html)),
+then either run the script on the clipped file or follow with **Raster >
+Projections > Warp (Reproject)** — target CRS the appropriate UTM zone,
+resampling **Bilinear**, resolution 30.
+
+Confirm the result before meshing:
+
+```bash
+gdalinfo region_utm.tif | head -20
+```
+
+You want a `PROJCS[... UTM zone ...]` block and a pixel size in metres.
 
 Download an NLCD land-cover TIFF from the
 [MRLC Viewer](https://www.mrlc.gov/viewer/) using its Data Download tool. Select
@@ -327,6 +370,10 @@ python CWD_solver.py \
   conversion functions.
 - `verify_environment.py` and `smoke_test_fenics.py` — environment validation
   and distributed FEniCSx assembly checks.
+- `reproject_dem.py` — step 1: reproject a DEM from geographic degrees to
+  projected metres, cropping in the same pass. Auto-selects the UTM zone,
+  defaults to bilinear resampling at 30 m, and warns when the result would
+  produce a triangulation too large to remesh.
 - `crop_dem_valid_window.py` — optional DEM crop helper.
 - `check_raster_alignment.py` — raster metadata/class diagnostic.
 - `resample_land_cover_on_existing_mesh.py` — regenerates the two `.npy` arrays

@@ -468,7 +468,6 @@ def main():
     np.save(args.diffusivity_output, diffusivity)
     np.save(args.classes_output, land_cover.astype(np.int32))
 
-    print(f"Water nodes (barrier): {(diffusivity == 0.0001).sum()}")
     print("Done!")
 
 

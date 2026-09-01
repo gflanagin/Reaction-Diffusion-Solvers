@@ -1,0 +1,1183 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage[table]{xcolor}
+
+% ---------------------------------------------------------------------
+% Provenance tags for parameter values (Section~\ref{sec:params}).
+% LIT   -- derived from published CWD field or modelling data
+% DEF   -- a unit-defining normalization; exact by construction
+% CAL   -- back-solved from a calibration target (a target R0, a term balance)
+% GUESS -- expert judgement with no supporting citation for this study region
+% Rows carrying a GUESS value are shaded so they can be found at a glance.
+% ---------------------------------------------------------------------
+\definecolor{guessbg}{rgb}{1.00,0.94,0.80}
+\newcommand{\tagLIT}{{\footnotesize\textsf{\textcolor{green!40!black}{LIT}}}}
+\newcommand{\tagDEF}{{\footnotesize\textsf{\textcolor{blue!60!black}{DEF}}}}
+\newcommand{\tagCAL}{{\footnotesize\textsf{\textcolor{orange!75!black}{CAL}}}}
+\newcommand{\tagGUESS}{{\footnotesize\textsf{\textbf{\textcolor{red!70!black}{GUESS}}}}}
+\newcommand{\tagNUM}{{\footnotesize\textsf{\textcolor{purple!70!black}{NUMERICAL}}}}
+\newcommand{\guessrow}{\rowcolor{guessbg}}
+
+\newcommand{\Grad}{\nabla_\Gamma}
+\newcommand{\Div}{\nabla_\Gamma\cdot}
+\newcommand{\Vad}{\mathcal{V}_{\mathrm{ad}}}
+\newcommand{\Ham}{\mathcal{H}}
+\newcommand{\Lag}{\mathcal{L}}
+\title{A Reaction--Diffusion Model for Chronic Wasting Disease Spread in Deer on a Topographically Realistic Landscape, with Optimal Culling Control}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a spatially explicit model of chronic wasting disease (CWD) transmission in white-tailed deer, posed on a two-dimensional surface $\Gamma \subset \mathbb{R}^3$ that is fit to real topographic data. The model extends the classical directly-transmitted wildlife disease framework by including an environmental compartment representing prion contamination of the landscape, which allows for indirect transmission in addition to direct deer-to-deer contact. Diffusion of the deer sub-populations is modeled anisotropically, with local diffusivity depending on land cover and terrain slope, and the local deer carrying capacity is informed by land cover classification data. We describe the model, its parameterization from geographic data sources, and a surface finite element method (FEM) suitable for its numerical solution. We then pose a management problem on top of the model: choosing a spatially and temporally varying culling effort, applied to the prion-shedding class, so as to minimize a weighted combination of the shedding burden, the environmental prion load, and the cost of the intervention. We derive the adjoint system characterizing the optimal control, give the discrete adjoint of the implicit--explicit time-stepping scheme, and describe a forward--backward sweep driven by a projected quasi-Newton method.
+\end{abstract}
+
+\section{Introduction}
+
+Chronic wasting disease is a fatal, prion-mediated neurodegenerative disease affecting deer, elk, and other cervids. Unlike many classical wildlife epizootics, CWD is transmitted not only through direct contact between infectious and susceptible animals but also indirectly, through environmental contamination: prions shed by infectious deer persist in soil and vegetation for extended periods and remain capable of infecting susceptible deer long after the shedding animal has died or moved on \citep{Almberg2011}. Capturing this environmental reservoir is essential to realistically modeling CWD spread and to evaluating management strategies such as targeted culling or carcass removal.
+
+Real deer habitats are neither flat nor homogeneous: terrain elevation, slope, and land cover all influence both the local population density a landscape can support and the rate at which deer -- and hence the disease and environmental contamination -- move through it. In this work we pose a four-compartment susceptible--infected--infectious--environmental (S-I-R-W) reaction--diffusion model on a two-dimensional surface $\Gamma$ embedded in $\mathbb{R}^3$, constructed by interpolating digital elevation data. We couple this surface to land-cover classification data so that both the deer carrying capacity $K$ and the diffusion tensor $D$ vary in space according to real geographic features. We then describe a surface finite element discretization appropriate for numerically integrating the resulting system on an unstructured triangulated mesh of $\Gamma$.
+
+Sections~\ref{sec:control}--\ref{sec:control-implementation} take the further step of treating the model as a constraint rather than as an end in itself. Given the model, one may ask how a limited culling effort should be distributed over space and time in order to do the most good. We formulate this as an optimal control problem, derive the adjoint equations that characterize its solution, and describe the numerical method used to solve it.
+
+\section{Domain: The Embedded Surface $\Gamma$}
+\label{sec:domain}
+
+The spatial domain $\Gamma \subset \mathbb{R}^3$ is a two-dimensional surface constructed by interpolating topographic elevation data obtained from the USGS National Map downloader (\url{https://apps.nationalmap.gov/downloader/}). The resulting digital elevation model (DEM) is triangulated to produce a mesh $\Gamma_h$ (see Section~\ref{sec:fem}) whose vertices carry both a spatial position $\mathbf{x} \in \mathbb{R}^3$ and an outward unit surface normal $\mathbf{n}(\mathbf{x})$.
+
+Land cover classification data, obtained from the Multi-Resolution Land Characteristics Consortium viewer (\url{https://www.mrlc.gov/viewer/}), is glued to the elevation surface by aligning shared longitude and latitude coordinates. Each point of $\Gamma$ is thus tagged with a land cover class, which is used below to define both the deer carrying capacity $K$ and part of the diffusion tensor $D$.
+
+All spatial differential operators appearing in the model are surface (Laplace--Beltrami type) operators. For a scalar field $u$ defined on $\Gamma$, $\Grad u$ denotes the tangential (surface) gradient, and $\Div(\mathbf{F})$ denotes the surface divergence of a tangential vector field $\mathbf{F}$.
+
+\section{The Reaction--Diffusion Model}
+\label{sec:model}
+
+\subsection{State variables and governing equations}
+
+We model chronic wasting disease (CWD) in a white-tailed deer population distributed over a two-dimensional surface $\Gamma$ embedded in $\mathbb{R}^3$, whose geometry encodes the terrain of the study region. The deer population is partitioned into three compartments, each a spatially and temporally varying density (deer/km$^2$):
+\begin{itemize}
+  \item $S(\mathbf{x},t)$ --- \emph{susceptible} deer;
+  \item $I(\mathbf{x},t)$ --- \emph{infected} deer, in the incubating, sub-clinical, non-shedding stage;
+  \item $R(\mathbf{x},t)$ --- \emph{infectious} deer, displaying clinical signs and actively shedding prions.
+\end{itemize}
+We write $N = S + I + R$ for the total local deer density. To these we adjoin a fourth field,
+\begin{itemize}
+  \item $W(\mathbf{x},t)$ --- the \emph{environmental prion load}, the local density of infectious prion material deposited on the landscape through saliva, urine, feces, and decomposing carcasses,
+\end{itemize}
+which tracks the contaminated-environment reservoir that distinguishes CWD from directly transmitted wildlife diseases. Our notation for this compartment follows the environmental-transmission literature on CWD \citep{Almberg2011}.
+
+The governing system on $\Gamma$ is
+\begin{align}
+  \partial_t S &= \Div\big(D\,\Grad S\big) + rS\Big(1-\frac{N}{K}\Big) - \beta_1 S R - \beta_2 S W, \label{eq:S} \\
+  \partial_t I &= \Div\big(D\,\Grad I\big) + \beta_1 S R + \beta_2 S W - \sigma I, \label{eq:I} \\
+  \partial_t R &= \Div\big(D\,\Grad R\big) + \sigma I - \alpha R, \label{eq:R} \\
+  \partial_t W &= \rho R - \delta W, \label{eq:W}
+\end{align}
+where $\Grad$ and $\Div$ denote the surface gradient and surface divergence on $\Gamma$, the diffusivity $D = D(\mathbf{x})$ is specified in Section~\ref{sec:diffusion}, and the carrying capacity $K = K(\mathbf{x})$ in Section~\ref{sec:carrying}. The system is closed with no-flux (homogeneous Neumann) conditions on $\partial\Gamma$,
+\begin{equation}
+  D\,\Grad S\cdot\boldsymbol{\nu} = D\,\Grad I\cdot\boldsymbol{\nu} = D\,\Grad R\cdot\boldsymbol{\nu} = 0
+  \qquad \text{on } \partial\Gamma,
+  \label{eq:bc}
+\end{equation}
+with $\boldsymbol{\nu}$ the outward conormal, so that deer neither enter nor leave the domain across its boundary, and with prescribed nonnegative initial data $S(\cdot,0)$, $I(\cdot,0)$, $R(\cdot,0)$, $W(\cdot,0)$.
+
+\subsection{Reaction kinetics}
+
+The reaction terms are interpreted as follows.
+\begin{itemize}
+  \item $rS\big(1-N/K\big)$ is logistic recruitment of susceptibles, with intrinsic growth rate $r$ and local carrying capacity $K(\mathbf{x})$. Recruitment is density-dependent through the \emph{total} local density $N$, so that infected and infectious animals compete for the same resources as susceptibles, but all newborns enter the susceptible class.
+  \item $\beta_1 S R$ is \emph{direct} transmission: infections arising from contact between susceptible deer and clinically shedding deer, at rate $\beta_1$.
+  \item $\beta_2 S W$ is \emph{indirect}, or \emph{environmental}, transmission: infections arising from susceptible deer encountering prion-contaminated ground, at rate $\beta_2$. This term is the defining feature of CWD models relative to directly transmitted diseases such as rabies; because the environmental reservoir persists independently of the host, it permits the disease to spread and to recur at deer densities far below the threshold required to sustain purely direct transmission.
+  \item $\sigma I$ is the progression of infected deer from the sub-clinical, non-shedding class to the clinical, shedding class. The mean incubation period is $1/\sigma$, which for CWD is characteristically long --- many months to a few years --- in contrast to the days-to-weeks incubation of rabies.
+  \item $\alpha R$ is the removal rate of clinically infectious deer through disease-induced mortality, together with any predation or harvest that disproportionately targets symptomatic animals; $1/\alpha$ is the mean survival time after the onset of clinical signs. Removal is terminal in this model: there is no recovery pathway, and $R$ therefore denotes the infectious class rather than a removed class.
+  \item $\rho R$ is the deposition of prions into the environment by infectious deer, aggregating shedding during life with the contamination released at death and carcass decomposition.
+  \item $\delta W$ is the loss of environmental infectivity through prion degradation, burial, or transport out of the surface soil layer; $1/\delta$ is the effective environmental persistence time, which for CWD prions may be on the order of years.
+\end{itemize}
+
+Two structural features of the system deserve emphasis. First, the two transmission routes act on very different timescales: direct transmission is mediated by the current infectious population, whereas environmental transmission is mediated by $W$, which integrates past shedding over a memory horizon of length $1/\delta$. The environment therefore acts as a slowly discharging store of infection, decoupling present risk from present prevalence.
+
+Second, unlike $S$, $I$, and $R$, the field $W$ carries no diffusion term. Prion contamination is treated as immobile: it is deposited and decays in place, and Equation~\eqref{eq:W} is therefore a purely local ordinary differential equation at each point of $\Gamma$, coupled to the deer compartments only through the pointwise value of $R$. The absence of a spatial operator in \eqref{eq:W} means that $W$ requires no boundary condition and no finite element stiffness contribution, and it has direct consequences for the structure of the numerical scheme (Section~\ref{sec:fem}). As we shall see in Section~\ref{sec:adjoint-system}, it has an exactly mirrored consequence for the adjoint system.
+
+\subsection{Carrying capacity \texorpdfstring{$K$}{K}}
+\label{sec:carrying}
+
+The local deer carrying capacity is defined pointwise on $\Gamma$ as a base capacity $K_0$ (deer/km$^2$) modulated by a land-cover-dependent scaling coefficient $c(\mathbf{x})$:
+\begin{equation}
+  K(\mathbf{x}) = K_0\, c(\mathbf{x}),
+  \label{eq:K}
+\end{equation}
+where $c(\mathbf{x})$ takes one of a discrete set of values determined by the land cover classification at $\mathbf{x}$, as listed in Table~\ref{tab:landcover}. Forested and mixed edge habitat is expected to support substantially higher deer densities than open agricultural or developed land, and the coefficients are calibrated against regional deer density estimates so that the population-weighted mean of $K$ reproduces observed densities across the study region. Since $c$ is piecewise constant on the land cover classes, $K$ is discontinuous across class boundaries; this poses no difficulty for the weak formulation of Section~\ref{sec:fem}, in which $K$ enters only through a zeroth-order term.
+
+\begin{table}[h]
+\centering
+\caption{Land cover scaling coefficients defining $K(\mathbf{x}) = K_0\,c(\mathbf{x})$. Classes follow the MRLC National Land Cover Database classification. The adopted values, together with the companion permeability column used in the diffusion tensor, are given in Table~\ref{tab:landcover-values}.}
+\label{tab:landcover}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Land cover class & Scaling coefficient $c$ \\
+\midrule
+[class 1] & [value] \\
+[class 2] & [value] \\
+[class 3] & [value] \\
+$\vdots$ & $\vdots$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Diffusion coefficient \texorpdfstring{$D$}{D}}
+\label{sec:diffusion}
+
+Deer movement, and hence the effective diffusivity of $S$, $I$, and $R$, depends on both land cover and local terrain steepness. (As noted above, $W$ does not diffuse.) We take the diffusivity to be locally isotropic but spatially varying, and decompose it additively into a slope contribution and a land-cover contribution:
+\begin{equation}
+  D(\mathbf{x}) = D_s(\mathbf{x}) + D_c(\mathbf{x}).
+  \label{eq:D}
+\end{equation}
+
+\paragraph{Slope dependence.}
+Let $\mathbf{n}(\mathbf{x})$ be the upward-facing unit normal to $\Gamma$ at $\mathbf{x}$, and let $\phi \in [0,\pi/2)$ be the terrain slope angle, defined by
+\begin{equation}
+  \cos\phi = \mathbf{n}(\mathbf{x})\cdot\mathbf{e}_3,
+\end{equation}
+so that $\phi = 0$ on flat ground and $\phi$ increases as the terrain steepens. The slope-dependent component is the sigmoid
+\begin{equation}
+  D_s(\mathbf{x}) = \kappa_1 \big[\,1 + e^{50(0.96 - \cos\phi)}\,\big]^{-1}.
+  \label{eq:Ds}
+\end{equation}
+This is a smooth cutoff: $D_s$ is nearly constant on gentle terrain and decays approximately exponentially once the slope exceeds a transition value, the transition being centered at $\cos\phi = 0.96$, i.e.\ $\phi \approx 16.3^\circ$, with a width set by the steepness parameter $50$. The form encodes the empirical observation that deer avoid traversing steep terrain, for which the energetic cost of movement is high; the specific centering and width should be regarded as tunable and calibrated against telemetry-derived step-selection data where available.
+
+\paragraph{Land-cover dependence.}
+For the present study the land-cover component is taken to be spatially constant,
+\begin{equation}
+  D_c(\mathbf{x}) = \kappa_2,
+\end{equation}
+representing a baseline movement resistance. This may be generalized to a land-cover-dependent field $D_c(\mathbf{x})$ in exactly the manner used for $K$ in \eqref{eq:K} --- with lower effective diffusivity through dense forest or developed land and higher diffusivity across open fields and along habitat edges --- without any change to the analysis or the numerical scheme. Section~\ref{sec:impl-diffusion} describes the anisotropic generalization the implementation actually uses.
+
+\paragraph{Normalization.}
+The constant $\kappa_1$ is fixed by requiring that the slope contribution match the land-cover contribution on flat terrain, $D_s = \kappa_2$ at $\phi = 0$ (equivalently $\cos\phi = 1$). Evaluating \eqref{eq:Ds} there gives
+\begin{equation}
+  \kappa_2 = \kappa_1\big[1+e^{50(0.96-1)}\big]^{-1} = \kappa_1\big[1+e^{-2}\big]^{-1}
+  \qquad\Longrightarrow\qquad
+  \kappa_1 = \kappa_2\big(1+e^{-2}\big),
+\end{equation}
+so that $D = 2\kappa_2$ on flat ground and $D \to \kappa_2$ as the terrain becomes steep, i.e.\ the slope penalty can suppress at most half of the total diffusivity. The single free parameter $\kappa_2$ therefore sets the overall movement scale, and may be calibrated from observed deer home-range sizes or dispersal distances. Figure~\ref{fig:Ds} shows $D_s$ as a function of slope angle, illustrating the near-constant diffusivity on gentle terrain and the sharp decay past the transition slope.
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.6\textwidth}{\centering \vspace{2cm} [Insert plot of $D_s(\phi)$ vs.\ slope angle here] \vspace{2cm}}}
+\caption{Slope-dependent diffusivity $D_s$ as a function of terrain slope angle $\phi$, showing the sigmoidal decay centered at $\phi \approx 16.3^\circ$, with $\kappa_1 = \kappa_2(1+e^{-2})$ chosen so that $D_s = \kappa_2$ on flat ground.}
+\label{fig:Ds}
+\end{figure}
+
+\subsection{Parameters}
+
+Table~\ref{tab:params} collects the model parameters, their interpretations, and their units. Adopted numerical values, with their derivations and provenance, are given in Section~\ref{sec:params} and collected in Table~\ref{tab:paramvalues}.
+
+\begin{table}[h]
+\centering
+\caption{Model parameters. Densities are in deer/km$^2$ and time is measured in years.}
+\label{tab:params}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Symbol & Description & Units & Value \\
+\midrule
+$r$        & Intrinsic growth rate of deer                 & yr$^{-1}$                        & Table~\ref{tab:paramvalues} \\
+$K_0$      & Base carrying capacity                        & deer\,km$^{-2}$                  & Table~\ref{tab:paramvalues} \\
+$c$        & Land-cover scaling of $K$                     & ---                              & Table~\ref{tab:landcover-values} \\
+$\beta_1$  & Direct transmission rate                      & km$^{2}$\,deer$^{-1}$\,yr$^{-1}$ & Table~\ref{tab:paramvalues} \\
+$\beta_2$  & Environmental transmission rate               & (units of $W$)$^{-1}$\,yr$^{-1}$ & Table~\ref{tab:paramvalues} \\
+$\sigma$   & Progression rate, $I \to R$                   & yr$^{-1}$                        & Table~\ref{tab:paramvalues} \\
+$\alpha$   & Removal rate of infectious deer               & yr$^{-1}$                        & Table~\ref{tab:paramvalues} \\
+$\rho$     & Environmental prion shedding rate             & (units of $W$)\,deer$^{-1}$\,yr$^{-1}$ & Table~\ref{tab:paramvalues} \\
+$\delta$   & Environmental prion decay rate                & yr$^{-1}$                        & Table~\ref{tab:paramvalues} \\
+$\kappa_2$ & Baseline (land-cover) diffusivity             & km$^{2}$\,yr$^{-1}$              & Table~\ref{tab:paramvalues} \\
+$\kappa_1$ & Slope diffusivity scale, $\kappa_2(1+e^{-2})$ & km$^{2}$\,yr$^{-1}$              & derived \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Because $W$ has no independent physical calibration --- it is defined only up to a multiplicative constant, since $\beta_2$ and $\rho$ appear only in the product $\beta_2\rho$ at steady state --- we adopt the normalization $\rho = 1$ throughout, so that $W$ is measured in units of the prion load deposited by one infectious deer over one year, and all environmental transmission intensity is carried by $\beta_2$.
+
+\section{Parameter Values and Their Provenance}
+\label{sec:params}
+
+CWD dynamics unfold on much longer timescales than acute diseases such as rabies: latency is measured in months to years and environmental persistence in years, whereas rabies latency is measured in weeks and its infectious period in days. Parameter values must therefore come from the CWD-specific literature rather than being reused from acute directly-transmitted disease models. An earlier draft of this work did exactly the latter --- it carried $\sigma = 13.04\ \mathrm{yr}^{-1}$ and $\alpha = 73\ \mathrm{yr}^{-1}$, which are $1/(28\ \text{days})$ and $1/(5\ \text{days})$, the classical red fox rabies latency and infectious period. Every reaction parameter below has been reset accordingly.
+
+\subsection{Provenance classes}
+
+Each value carries one of four tags, and every guessed value is shaded so it can be found at a glance.
+\begin{itemize}
+\item \tagLIT{} --- derived from published CWD field or modelling data, with the derivation shown.
+\item \tagDEF{} --- a unit-defining normalization. Exact by construction, not an estimate.
+\item \tagCAL{} --- back-solved from a stated calibration target (a target $R_0$, a target balance between terms in the objective). The \emph{target} is the assumption; the arithmetic is not.
+\item \tagGUESS{} --- expert judgement with no supporting citation for this study region. These are the values to sweep, and the values a referee will ask about.
+\item \tagNUM{} --- a parameter that exists for conditioning or discretization, and represents nothing about deer or prions. Tuning one of these on ecological grounds is a category error. Only $\iota$ carries this tag, and Section~\ref{sec:params-movement} explains why it attracts the mistake.
+\end{itemize}
+
+\paragraph{A caveat on sourcing.} Numerical values below were read from the parameter table of \citet{Almberg2011}; that is the one source whose tabulated parameters were consulted directly. \citet{Miller2006} and \citet{Wasserberg2009} are cited for their qualitative findings and as the natural next sources for cross-checking, but their parameter tables have \emph{not} been reconciled against the values adopted here. Doing so --- particularly for \citeauthor{Wasserberg2009}'s fitted Wisconsin transmission parameters and \citeauthor{Miller2006}'s $R_0$ estimates --- is the obvious next step, and would move several \tagCAL{} entries toward \tagLIT{}.
+
+\subsection{Units, and the two length scales in play}
+\label{sec:params-units}
+
+The mesh pipeline reprojects the DEM and the land-cover raster to a UTM coordinate reference system, so \textbf{mesh coordinates are in metres}. Deer densities, however, are naturally quoted per square kilometre. Rather than rescale the mesh, we keep both conventions and note that they never meet: the transmission and growth terms are \emph{pointwise} and carry no area integral, so $S,I,R$ may be read as deer/km$^2$ and $\beta_1,\beta_2$ as km$^2$ per unit per year without any conversion; the diffusion term is the only place where mesh length units enter, so $\kappa$ --- and $\kappa$ alone --- must be given in m$^2$/yr. The objective \eqref{eq:objective} integrates $d\Gamma$ in m$^2$, which multiplies $J$ by a constant and therefore leaves the minimizer unchanged.
+
+\subsection{Host stage durations: $\sigma$ and $\alpha$}
+
+\citet{Almberg2011} report, for white-tailed deer, a mean exposed (infected, non-shedding) period of 27 weeks (range 15--35), a mean infectious (shedding, pre-clinical) period of 36 weeks (range 25--44), and a mean clinical period of 17 weeks (range 1--36). This model carries only two infected classes, so $I$ is their exposed stage and $R$ \emph{lumps their infectious and clinical stages together}: $R$ is the \textbf{shedding} class, of which the terminal clinical phase is a sub-part. (Section~\ref{sec:model} describes $R$ as the clinical class; the two readings differ, and the values below follow the lumped one. This is one of the points to settle before the two halves of the document are presented as a single model.) The lumping matters twice over: $1/\alpha$ is the full shedding duration rather than the much shorter clinical survival time, and the reduced mobility of clinically affected deer must be entered as a blend rather than as a clinical-stage value (Section~\ref{sec:params-movement}). It gives
+\[
+\sigma = \frac{52}{27} = 1.926\ \mathrm{yr}^{-1}
+\qquad\text{and}\qquad
+\alpha = \frac{52}{36+17} = \frac{52}{53} = 0.981\ \mathrm{yr}^{-1},
+\]
+i.e.\ a mean latency of 6.2 months and a mean shedding duration of 12.2 months. Propagating their reported ranges gives $\sigma \in [1.49, 3.47]$ and $\alpha \in [0.65, 1.95]$. Both are \tagLIT{}.
+
+\subsection{No background mortality: what is omitted, and how to put it back}
+\label{sec:params-mortality}
+
+The model carries no non-CWD mortality term. $\sigma$ is the only exit from $I$ and $\alpha$ the only exit from $R$, so every infected deer reaches the shedding class with probability one, and $\alpha$ absorbs disease-induced death together with any predation or harvest that disproportionately targets symptomatic animals --- as Section~\ref{sec:model} describes it. This is a deliberate choice and not an oversight, but it has two consequences that shape how a result may be read.
+
+First, there is no harvest anywhere in the model. The control $v$ is therefore \emph{total} removal effort on the shedding class rather than effort above a normal hunt, and $v\equiv0$ is an unmanaged herd rather than a status-quo managed one. Comparing an optimized $J$ against the $v\equiv0$ baseline is comparing against no management at all.
+
+Second, the optimizer sees every culled animal as a certain future shedder. With a competing risk in the model, a proportion of infected animals would die of something else before ever shedding, and the marginal value of removing one would fall accordingly. Omitting the term therefore biases the optimal effort upward. The size of the effect is not small: at the \citet{Almberg2011} weekly survival $s = 0.991$, i.e.\ $\mu = -52\ln(0.991) = 0.470\ \mathrm{yr}^{-1}$, roughly a fifth of infected animals would be removed before shedding.
+
+Reinstating $\mu$ is a contained change, and worth spelling out because it is easy to do incorrectly. It means adding $-\mu I$ and $-\mu R$ to \eqref{eq:I}--\eqref{eq:R}, the matching $-\mu$ entries to the $(I,I)$ and $(R,R)$ diagonal of the Jacobian \eqref{eq:jacobian} and hence to the adjoint \eqref{eq:adjI}--\eqref{eq:adjR}, and --- the step that is easy to forget --- \emph{rescaling $\beta_1$ and $\beta_2$}, which were back-solved from a target $R_0$ whose formula contains $\mu$ (Section~\ref{sec:params-r0}). Bolting $\mu = 0.470$ onto the present coefficients without rescaling drops $R_0$ from $2.00$ to $1.09$, a whisker above threshold, and the model then behaves like a different one for reasons that have nothing to do with the edit that was intended. The general forms are given in \eqref{eq:R0dir}--\eqref{eq:R0env}.
+
+One further point would need settling first. \citeauthor{Almberg2011}'s stage durations are used here as \emph{progression} times, with any survival term applied separately. If they are instead realized residence times that already net out mortality, then adding $\mu$ to $R$ would double-count and $\alpha$ would have to be reduced to compensate.
+
+\subsection{Environmental persistence $\delta$, and the definition of a prion-unit}
+
+\citet{Almberg2011} parameterize environmental prion loss by a weekly survival probability $\gamma$, which they vary over $[0.9481, 0.9983]$. Converting to a continuous decay rate, $\delta = -52\ln\gamma$, this spans
+\[
+\delta \in [0.089,\ 2.77]\ \mathrm{yr}^{-1},
+\qquad\text{i.e. a persistence } 1/\delta \in [0.36,\ 11.3]\ \text{yr}.
+\]
+We adopt $\delta = 0.5\ \mathrm{yr}^{-1}$, a two-year persistence. This is the geometric midpoint of their explored range, and it coincides with the direct experimental evidence: \citet{Miller2004} showed that mule deer paddocks remained infectious to na\"ive deer at least two years after the removal of infected animals. \tagLIT{}. This is the single most consequential parameter in the model --- it is precisely the one \citet{Almberg2011} identify as driving prevalence and population decline --- and it should be the first thing swept. The earlier draft's $\delta = 0.1\ \mathrm{yr}^{-1}$ (ten-year persistence) sat at the extreme persistent end of the published range.
+
+The shedding rate $\rho$ cannot be estimated independently, because the environmental compartment $W$ has no measurable absolute scale: multiplying $\rho$ and dividing $\beta_2$ by the same constant leaves the dynamics identical. We therefore fix the scale by \emph{definition}:
+\begin{equation}
+\rho \equiv 1\ \text{prion-unit}/(\text{deer}\cdot\text{yr}),
+\qquad\text{i.e.\ one prion-unit is the quantity shed by one shedding deer in one year.}
+\end{equation}
+\tagDEF{}. This absorbs the arbitrary scale and leaves $\beta_2$ as the single free environmental parameter. (\citeauthor{Almberg2011} instead carry a shedding rate of 2 units/week plus a 100-unit carcass pulse at death; those units are internal to their model and do not transfer.)
+
+\subsection{Transmission coefficients $\beta_1$ and $\beta_2$, from a target $R_0$}
+\label{sec:params-r0}
+
+Published per-capita transmission coefficients for CWD are not directly transferable here. \citet{Almberg2011} report $\beta_d \in [7.5\times10^{-7}, 2.5\times10^{-5}]$ and $\beta_i \in [1.1\times10^{-8}, 1.75\times10^{-8}]$, but these are per-individual rates in a closed 20\,000-animal population with no spatial extent --- they carry different dimensions from the density-dependent, per-area coefficients this model needs. We therefore back-solve $\beta_1$ and $\beta_2$ from a stated reproductive number, which is the quantity the two literatures actually share.
+
+In a wholly susceptible landscape at $S=K_0$, an animal newly entering $I$ reaches the shedding class with certainty --- there is no competing risk (Section~\ref{sec:params-mortality}) --- and then remains there for a mean time
+\begin{equation}
+\Pi = T_{\text{shed}} = \frac{1}{\alpha} = 1.019\ \mathrm{yr},
+\label{eq:Pi}
+\end{equation}
+$\alpha$ being its only exit. During that time the animal infects susceptibles directly at rate $\beta_1 K_0$, so
+\begin{equation}
+R_0^{\mathrm{dir}} = \beta_1 K_0\,\Pi = \frac{\beta_1 K_0}{\alpha}.
+\label{eq:R0dir}
+\end{equation}
+Over the same period it deposits $\rho\,\Pi$ prion-units, each of which persists a mean $1/\delta$ years while infecting at rate $\beta_2 K_0$, so
+\begin{equation}
+R_0^{\mathrm{env}} = \frac{\beta_2 K_0\,\rho\,\Pi}{\delta},
+\qquad\text{and}\qquad
+R_0 = R_0^{\mathrm{dir}} + R_0^{\mathrm{env}}.
+\label{eq:R0env}
+\end{equation}
+Note the structure of \eqref{eq:R0env}: the environmental route's contribution is inflated by the factor $1/\delta$, the persistence time. This is the algebraic content of \citeauthor{Almberg2011}'s central observation that the effective infectious period can vastly exceed the host's lifespan, and hence that $R_0$ can be far larger than a direct-transmission analysis would suggest.
+
+We target $R_0^{\mathrm{dir}} = R_0^{\mathrm{env}} = 1$, so that neither route alone is comfortably self-sustaining but the two together give $R_0 = 2$ --- the qualitative regime in which environmental persistence is what makes the epizootic go, which is the regime of interest. A total of $R_0 = 2$ is a modest, deliberately conservative choice, at the low end of what the transmission-dynamics literature for cervid prion disease suggests \citep{Miller2006}; it should be revised once that literature's estimates have been reconciled with this model's density-dependent formulation. Inverting \eqref{eq:R0dir}--\eqref{eq:R0env} with $\alpha = 0.981$, $\delta = 0.5$, $\rho = 1$ and $K_0 = 10$:
+\[
+\beta_1 = \frac{R_0^{\mathrm{dir}}\,\alpha}{K_0} = 0.0981\ \frac{\mathrm{km}^2}{\text{deer}\cdot\mathrm{yr}},
+\qquad
+\beta_2 = \frac{R_0^{\mathrm{env}}\,\delta\,\alpha}{K_0\,\rho} = 0.04905\ \frac{\mathrm{km}^2}{\text{prion-unit}\cdot\mathrm{yr}}.
+\]
+Both are \tagCAL{}. \emph{The even 1:1 split is the assumption, not the numbers} --- it is a free choice and should be swept. Two consequences follow and are easy to forget. First, $\beta_1$ and $\beta_2$ are tied to $K_0$ and $\alpha$, and $\beta_2$ also to $\delta$ and $\rho$. Revise any of them and both coefficients must be rescaled to hold $R_0$ fixed, or the epidemic threshold moves as a side effect of an edit that had nothing to do with transmission. Section~\ref{sec:params-mortality} describes exactly that failure, in the form it took when a background mortality was once added without rescaling. Second, the original draft's $\beta_1 = 80$ is some $400\times$ the value above, corresponding to $R_0^{\mathrm{dir}}$ in the hundreds; the model would saturate essentially instantaneously, leaving nothing for a control to act on.
+
+At these values the spatially uniform endemic equilibrium is $S^* = K_0/R_0 = 5.0$, $I^* = 0.358$, $R^* = 0.703$, giving $N^* = 6.06$ deer/km$^2$ --- a $39\%$ population decline at $17.5\%$ prevalence, which is in the observed range for a CWD core area. That $S^* = K_0/R_0$ exactly is the usual threshold identity and is a useful check on any re-calibration.
+
+\subsection{Demography: $r$ and $K_0$}
+
+For $r$ we take $0.35\ \mathrm{yr}^{-1}$, a finite rate of increase $\lambda = e^{0.35} = 1.42$ for an unexploited herd well below carrying capacity. This is consistent with the per-capita birth rate of $0.55\ \mathrm{yr}^{-1}$ used by \citet{Almberg2011} net of unhunted adult mortality of order $0.15$--$0.20\ \mathrm{yr}^{-1}$; a plausible range is $0.25$--$0.50$. \tagLIT{} (derived, moderate confidence). The earlier draft's $r = 1.5\ \mathrm{yr}^{-1}$ implies $\lambda = 4.5$, which no cervid population achieves.
+
+For $K_0$ we take $10$ deer/km$^2$ ($\approx 26$ deer/mi$^2$) in the best habitat class, which after applying Table~\ref{tab:landcover-values} gives a landscape mean nearer $6$--$8$ deer/km$^2$. This is a high but attainable density for a Midwestern or eastern white-tailed deer herd. \tagGUESS{}: it is region-specific and no source has been consulted for the actual study area, so it should be replaced with the managing agency's overwinter density estimate. The earlier draft's $2$ deer/km$^2$ is a boreal or heavily-hunted-herd density, roughly five times too low for the habitat this model targets. Recall from Section~\ref{sec:params-r0} that changing $K_0$ obliges a matching rescale of $\beta_1$ and $\beta_2$.
+
+\subsection{Movement: $\kappa$, the anisotropy floor, and compartment mobilities}
+\label{sec:params-movement}
+
+No fitted diffusion coefficient for white-tailed deer is available, so $\kappa$ is bracketed by two independent order-of-magnitude arguments.
+\begin{enumerate}
+\item \emph{From dispersal.} Roughly a quarter of white-tailed deer disperse once, as yearlings, over a median distance of order 8--10~km. Spreading that mean squared displacement over a population turnover time of a few years gives $D$ of order $3$~km$^2$/yr.
+\item \emph{From front speed.} A Fisher--KPP invasion advances at $c = 2\sqrt{D\,r_I}$, where $r_I$ is the initial exponential growth rate of the infected class. An observed CWD front speed of a few km/yr with $r_I$ of order $0.3\ \mathrm{yr}^{-1}$ implies $D$ of order $5$--$8$~km$^2$/yr.
+\end{enumerate}
+Both land in a $2$--$8$~km$^2$/yr band, and we adopt $\kappa = 4\times10^{6}\ \mathrm{m}^2/\mathrm{yr} = 4$~km$^2$/yr on flat, maximally permeable land cover. \tagGUESS{} --- this is the least defensible parameter in the model. Its saving grace is that the spread rate goes as $\sqrt{\kappa}$, so a factor-of-four error in $\kappa$ is only a factor-of-two error in front speed.
+
+Note that $\kappa$ now carries the \emph{entire} physical magnitude of the diffusivity, and the per-compartment multipliers $D_X^{\text{scale}}$ of Section~\ref{sec:impl-diffusion} are dimensionless mobility ratios. The earlier draft split the magnitude arbitrarily between $\kappa = 200$ and compartment scales of $100$, which obscured what either meant. We set the susceptible and infected scales to $1.0$ --- sub-clinical infected deer are not detectably less mobile than susceptibles --- and the $R$ scale to $0.3$. \tagGUESS{}. Because $R$ lumps pre-clinical shedding with the clinical phase (Section~\ref{sec:params}), $0.3$ is a blend of near-normal and near-immobile rather than a clinical-stage value; a genuinely clinical-stage mobility would be far lower, and recovering it would require splitting $R$ in two.
+
+The floor $\iota$ is retained at $0.02$, and it is worth being explicit about what it is for, because it invites exactly one mistake. \textbf{$\iota$ is not a movement parameter and must not be tuned as one.} All of the slope physics lives in the activation function: $D_s = \kappa[\iota + (1-\iota)a(\theta)]$ equals $\kappa$ on flat ground and falls toward the floor as terrain steepens, with $c$ and $k$ setting where and how sharply. What $\iota$ does is prevent $D_s$ from reaching zero. Without it the tangent-plane part of \eqref{eq:Dtens} drops from rank two to rank one on the steepest facets, leaving the stiffness matrix singular along $\mathbf{e}_s$ and sending the $1/r$ \texttt{mmg} mesh metric to infinity. It is a degeneracy floor, wanted small enough not to interfere with $a(\theta)$ and large enough to keep the tensor conditioned; $\iota = 0.02$ gives a tangent-plane condition number of $50$. It also fixes the mesh floor $h_{\min} = \iota\cdot(\text{min\_land\_cover\_squish})\cdot h_{\max} = 0.3$~m. \tagNUM{}.
+
+(A draft of this section briefly raised $\iota$ to $0.1$ on the reasoning that a $50\!:\!1$ anisotropy on steep ground was ecologically implausible. That reasoning is a category error worth recording: strong anisotropy on steep ground is precisely what $a(\theta)$ is built to produce, and $\iota$ merely stops it becoming singular. Reading a numerical regularization as a physical ratio is an easy mistake to make with this tensor, since the two are multiplied together in the same expression.)
+
+The activation threshold $c = 0.96$ (half-suppression at $\mathrm{acos}(0.96) = 16.3^\circ$) is retained, chosen to sit inside the 15--25$^\circ$ band above which cervid habitat-selection studies generally show avoidance, and the steepness $k = 50$ spreads the transition over slopes of $0$--$23^\circ$. Both \tagGUESS{}; unlike $\iota$, these two \emph{are} the movement parameters, and $k$ in particular controls only how abruptly mobility falls off, not where.
+
+\subsection{The land-cover tables}
+\label{sec:params-landcover}
+
+Table~\ref{tab:landcover-values} gives the adopted land-cover coefficients, filling in the schematic table of Section~\ref{sec:carrying} and adding the companion multiplier the diffusion tensor needs. \emph{The two columns measure different things and are not to be collapsed into one.} The coefficient $c$ measures \textbf{habitat quality} --- how many deer a cover type supports, entering $K(\mathbf{x}) = K_0 c(\mathbf{x})$ --- while $\ell$ measures \textbf{permeability}, how readily deer move through it, entering the diffusion tensor \eqref{eq:Dtens}. For several classes the two are anti-correlated. Open grassland is highly permeable but poor white-tailed deer habitat: it offers little browse and no cover, so deer cross it quickly rather than settling in it. Woody wetlands are the reverse --- prime cover and winter browse, but slow going. Developed open space (the exurban lawn-and-woodlot mosaic, parks, golf courses) supports famously high suburban deer densities while being only moderately permeable.
+
+Every entry of Table~\ref{tab:landcover-values} is a \tagGUESS{}, and both columns should be calibrated against regional density estimates stratified by cover type. Three entries were corrected outright from the earlier draft, in each case because the two columns had been conflated:
+\begin{itemize}
+\item \textbf{Woody wetlands}, $c$: $0.35 \to 0.90$. Woody wetlands are prime white-tailed deer cover and winter browse. They are indeed hard to move through --- which is why $\ell = 0.5$ --- but that is a permeability fact, not a habitat one.
+\item \textbf{Grassland}, $c$: $1.00 \to 0.50$. Open grassland offers little browse and no cover. It is the most \emph{permeable} class ($\ell = 1.0$), which is presumably how it came to head the habitat column too.
+\item \textbf{Barren land}, $c$: $0.40 \to 0.10$. Rock and sand support almost no deer, while being easy to cross ($\ell = 0.9$).
+\end{itemize}
+\begin{table}[h]
+\centering
+\small
+\caption{Land cover coefficients, keyed to NLCD/MRLC class codes. Column $c$ is the carrying-capacity scaling in $K(\mathbf{x})=K_0\,c(\mathbf{x})$ of Section~\ref{sec:carrying}; column $\ell$ is the dimensionless diffusivity multiplier in \eqref{eq:Dtens}, normalized so the most permeable classes sit at $1.0$. Every value in this table is a \tagGUESS{}, hence the shading.}
+\label{tab:landcover-values}
+\rowcolors{2}{guessbg}{guessbg}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+Code & Land cover class & $c$ (habitat) & $\ell$ (permeability) \\
+\midrule
+0  & Unknown or nodata            & 0.50 & 0.50 \\
+11 & Open water                   & 0.00 & 0.01 \\
+12 & Perennial ice or snow        & 0.00 & 0.30 \\
+21 & Developed, open space        & 0.90 & 0.60 \\
+22 & Developed, low intensity     & 0.60 & 0.40 \\
+23 & Developed, medium intensity  & 0.25 & 0.15 \\
+24 & Developed, high intensity    & 0.05 & 0.02 \\
+31 & Barren land                  & 0.10 & 0.90 \\
+41 & Deciduous forest             & 1.00 & 0.70 \\
+42 & Evergreen forest             & 0.60 & 0.60 \\
+43 & Mixed forest                 & 0.95 & 0.65 \\
+52 & Shrub or scrub               & 0.85 & 0.80 \\
+71 & Grassland or herbaceous      & 0.50 & 1.00 \\
+81 & Pasture or hay               & 0.70 & 1.00 \\
+82 & Cultivated crops             & 0.75 & 0.90 \\
+90 & Woody wetlands               & 0.90 & 0.50 \\
+95 & Emergent herbaceous wetlands & 0.35 & 0.35 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two further changes are numerical rather than ecological. Open water's permeability is raised from $10^{-4}$ to $10^{-2}$: deer do swim, so large water bodies are strong but not absolute barriers, and because this table also drives the \texttt{mmg} mesh metric the old value forced a pathologically fine mesh along every shoreline. And both defaults, applied to class codes absent from the tables, are lowered from $1.0$ to $0.5$, so that unmapped or nodata cells fall back to a mid-range value rather than to prime, maximally permeable habitat.
+
+\subsection{Horizon and time step}
+
+The planning horizon is set to $T = 20$~yr. \tagGUESS{} --- this is a management choice, not a measured quantity, but CWD epizootics take one to three decades to move from introduction to double-digit prevalence, so 20 years is about the shortest window over which a culling policy can be meaningfully evaluated. The time step is $\Delta t = 0.02$~yr $= 7.3$~days, matching the weekly step of \citet{Almberg2011}. \tagLIT{}. Accuracy, not stability, is the binding constraint: diffusion is implicit and the $W$ update is exact, so the only explicit rates are the reaction terms, the fastest of which is $\sigma$, giving $\Delta t\,\sigma = 0.039 \ll 1$. Be aware of the cost: the control driver stores the entire state trajectory and the control field carries one value per mesh node per step, so both memory and runtime scale with $T/\Delta t$, here 1000 steps.
+
+\subsection{Initial conditions}
+\label{sec:params-ic}
+
+The susceptible field is \emph{not} initialized at the carrying capacity. $K(\mathbf{x})$ is a piecewise-constant land-cover lookup (Section~\ref{sec:carrying}) and is therefore not a steady state of the $S$ equation: the diffusion term smooths it across every land-cover patch boundary, and over water, where $K=0$ and recruitment is replaced by decay at rate $-r$, the landscape acts as an absorbing sink that draws the profile down for a diffusion length around every shoreline. We instead take $S(\cdot,0)=S_\infty$, the \emph{disease-free equilibrium}: the solution of
+\begin{equation}
+\Div\big(D_S\,\Grad S_\infty\big) + rS_\infty\Big(1-\frac{S_\infty}{K}\Big) = 0
+\label{eq:disease-free}
+\end{equation}
+on the habitat portion of $\Gamma$ (with $rS_\infty(1-S_\infty/K)$ replaced by $-rS_\infty$ where $K<0.01$, matching the solver's branch), under the same zero-flux boundary condition as the full system. It is obtained numerically by relaxing the $S$ equation alone, from $S=K$ and with $I=R=W\equiv0$, until it stops moving; the procedure and its caching are described in Section~\ref{sec:spinup}.
+
+Starting instead at $S=K$ superimposes an order-one \emph{demographic} transient on the epidemic one, and the two are not separated in time: logistic relaxation has an $e$-folding time $1/r = 2.9$~yr, against an epizootic that develops over one to three decades. The transient is therefore still running while the quantities of interest are being measured. For the control problem of Section~\ref{sec:control} this is worse than cosmetic, since the spurious structure it creates is something the optimizer will spend control effort on.
+
+Two numerical parameters govern the relaxation. The stopping tolerance $\varepsilon_{\text{drift}} = 10^{-5}$~yr$^{-1}$ is a bound on $\max_\Gamma|\partial_t S|$ relative to $\max_\Gamma K$, so at $K_0 = 10$~deer/km$^2$ the field is required to be moving by less than $10^{-4}$~deer/km$^2$/yr --- under a five-hundredth of a deer per km$^2$ across the whole 20-year horizon, and negligible against every other error in the model. The cap $T_{\text{spin}} = 60$~yr is a ceiling, not a target: the relaxation exits as soon as the tolerance is met. Both are \tagNUM{}. The cap is generous because the slow process is not the logistic one but the diffusive one: equilibrating across a habitat patch of linear scale $L$ takes of order $L^2/\kappa$, which is 1~yr for a 2~km patch but 25~yr for a 10~km one, with shoreline drawdown around a large water body slower still. A short fixed spin-up of ``a couple of years'' would leave roughly a third of the initial deviation in place, which is why the stopping rule is a convergence test rather than a fixed duration.
+
+Turning to the infected class: each outbreak focus is a Gaussian of standard deviation $\varsigma = 500$~m --- roughly the linear scale of a white-tailed deer home range of 1--3~km$^2$, i.e.\ the area over which a single index case actually makes contacts and deposits prions (\tagGUESS{}). The amplitude is then fixed by requiring each focus to integrate to \emph{exactly one} introduced animal: since $\int m\,e^{-\lVert x\rVert^2/2\varsigma^2}\,dA = 2\pi\varsigma^2 m$ and $\varsigma = 0.5$~km,
+\[
+m = \frac{1}{2\pi(0.5)^2} = 0.637\ \text{deer/km}^2. \qquad \tagCAL{}
+\]
+The earlier draft's $m = 0.01$ corresponds to $1/64$ of a deer per focus --- numerically harmless, but not interpretable as an index case. The focus \emph{locations} are arbitrary and mesh-dependent (\tagGUESS{}); they should be replaced by actual first-detection coordinates for the study region.
+
+\subsection{Summary table}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Model parameters, adopted values, and provenance. Shaded rows are values with no supporting citation for this study region --- the ones to sweep, and the ones a referee will ask about. Cost weights and control bounds are discussed in Section~\ref{sec:control}; every value is reproduced with its full justification in the \texttt{\_notes} blocks of \texttt{parameters.json}.}
+\label{tab:paramvalues}
+\begin{tabular}{@{}llllp{4.6cm}@{}}
+\toprule
+Symbol & Description & Value & Units & Provenance \\
+\midrule
+$\sigma$ & Latency $\to$ shedding rate & $1.926$ & yr$^{-1}$ & \tagLIT{} $52/27$ wk, \citet{Almberg2011}; range $1.49$--$3.47$ \\
+$\alpha$ & CWD removal rate of shedding deer & $0.981$ & yr$^{-1}$ & \tagLIT{} $52/53$ wk, \citet{Almberg2011}; range $0.65$--$1.95$ \\
+$\delta$ & Environmental prion decay & $0.5$ & yr$^{-1}$ & \tagLIT{} $-52\ln\gamma$, \citet{Almberg2011}; corroborated by \citet{Miller2004}; range $0.089$--$2.77$ \\
+$\rho$ & Prion shedding rate & $1.0$ & PU/(deer$\cdot$yr) & \tagDEF{} defines the prion-unit; exact \\
+$\beta_1$ & Direct transmission & $0.0981$ & km$^2$/(deer$\cdot$yr) & \tagCAL{} from $R_0^{\mathrm{dir}}=1$, Eq.~\eqref{eq:R0dir} \\
+$\beta_2$ & Environmental transmission & $0.04905$ & km$^2$/(PU$\cdot$yr) & \tagCAL{} from $R_0^{\mathrm{env}}=1$, Eq.~\eqref{eq:R0env} \\
+$r$ & Intrinsic growth rate & $0.35$ & yr$^{-1}$ & \tagLIT{} derived from \citet{Almberg2011} fecundity; range $0.25$--$0.50$ \\
+$\Delta t$ & Time step & $0.02$ & yr & \tagLIT{} weekly step of \citet{Almberg2011} \\
+$\varepsilon_{\text{drift}}$ & Spin-up stopping tolerance & $10^{-5}$ & yr$^{-1}$ & \tagNUM{} $\max|\partial_t S|$ relative to $\max K$; Section~\ref{sec:spinup} \\
+$T_{\text{spin}}$ & Spin-up duration cap & $60$ & yr & \tagNUM{} a ceiling, not a target; exits on $\varepsilon_{\text{drift}}$ \\
+\guessrow $K_0$ & Base carrying capacity & $10$ & deer/km$^2$ & \tagGUESS{} region-specific; replace with agency estimate \\
+\guessrow $\kappa$ & Diffusivity scale & $4\times10^{6}$ & m$^2$/yr & \tagGUESS{} order of magnitude from dispersal and front speed \\
+$\iota$ & Tensor degeneracy floor & $0.02$ & --- & \tagNUM{} regularization, \emph{not} a movement parameter; also sets $h_{\min}$ \\
+\guessrow $c$ & Activation threshold & $0.96$ & --- & \tagGUESS{} half-suppression at $16.3^\circ$ \\
+\guessrow $k$ & Activation steepness & $50$ & --- & \tagGUESS{} smoothness only \\
+\guessrow $D_{S,I,R}^{\text{scale}}$ & Compartment mobilities & $1,\,1,\,0.3$ & --- & \tagGUESS{} $R$ value is a lumped-stage blend \\
+\guessrow $c(\mathbf{x}),\ \ell(\mathbf{x})$ & Land-cover coefficients & Table~\ref{tab:landcover-values} & --- & \tagGUESS{} expert judgement throughout \\
+\guessrow $T$ & Planning horizon & $20$ & yr & \tagGUESS{} management choice \\
+\guessrow $c_1,c_2,c_3$ & Objective weights & $1,\,0.5,\,2$ & --- & \tagGUESS{} term-balance recipe, Section~\ref{sec:control}; $c_1$ weights $R$ \\
+\guessrow $c_4$ & Linear (per-deer) control weight & $0$ & --- & \tagGUESS{} sets the effort threshold in \eqref{eq:pointwise-optimality}; $0$ by default \\
+\guessrow $v_{\max}$ & Maximum culling effort on $R$ & $1.0$ & yr$^{-1}$ & \tagGUESS{} $63\%$ annual removal at full effort \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{What is still a guess}
+
+Reading the shading of Table~\ref{tab:paramvalues}: the \emph{disease} parameters are now grounded --- the stage durations, the environmental decay rate, and the host growth rate all trace to published CWD data, and the two transmission coefficients follow from those by an explicit $R_0$ calculation whose only free input is the direct/environmental split. What remains unsupported is everything \emph{spatial} and everything \emph{economic}: the carrying capacity, the diffusivity scale, the two slope-activation parameters, the entire land-cover table, and every objective and control-bound parameter. (The three \tagNUM{} rows are unshaded because they are not in this argument at all: $\iota$ is a conditioning floor, and $\varepsilon_{\text{drift}}$ and $T_{\text{spin}}$ are convergence settings for a solve whose answer is determined by the parameters above them. No field measurement would settle any of the three.) That is the honest state of the model, and it shapes what conclusions it can currently support. Results about the \emph{timing} and \emph{qualitative structure} of an optimal culling policy rest on the grounded parameters and are reasonably robust; results about the absolute spatial \emph{extent} of spread, or about the cost-effectiveness of a policy in any real currency, do not and are not.
+
+Sensitivity work should therefore begin with $\delta$ --- the parameter \citet{Almberg2011} identify as controlling the outcome, and the one with the widest published range --- followed by the $R_0^{\mathrm{dir}}:R_0^{\mathrm{env}}$ split, then $\kappa$, then $K_0$ with $\beta_1,\beta_2$ rescaled to hold $R_0$ fixed.
+
+\section{Numerical Methods: Surface Finite Element Discretization}
+\label{sec:fem}
+
+We solve system~\eqref{eq:S}--\eqref{eq:W} using a surface finite element method (surface FEM), suitable for reaction--diffusion equations posed on triangulated approximations $\Gamma_h$ of the embedded surface $\Gamma$.
+
+\subsection{Mesh construction}
+
+The computational mesh $\Gamma_h$ is a triangulated piecewise-linear approximation of $\Gamma$ built directly from the DEM data described in Section~\ref{sec:domain}: elevation samples are triangulated in the horizontal plane and then lifted to $\mathbb{R}^3$ using the sampled elevation values, producing a mesh of flat triangles $\{T_k\}$ whose union approximates $\Gamma$. Each vertex $\mathbf{x}_i$ of $\Gamma_h$ inherits an interpolated land cover class (used to evaluate $K$ and $D_c$) and a discrete unit normal $\mathbf{n}_i$, computed e.g.\ as an area-weighted average of the normals of incident triangles, used to evaluate $\cos\phi_i$ and hence $D_s$.
+
+\subsection{Weak formulation}
+\label{sec:weak}
+
+Let $V_h \subset H^1(\Gamma_h)$ denote the space of continuous, piecewise-linear finite element functions on $\Gamma_h$, with nodal basis $\{\varphi_i\}_{i=1}^N$. Multiplying the diffusive equations \eqref{eq:S}--\eqref{eq:R} by a test function $\psi \in V_h$, integrating over $\Gamma_h$, and applying the surface (tangential) divergence theorem to the diffusion term gives the weak form: find $S,I,R \in V_h$ such that for all $\psi \in V_h$,
+\begin{align}
+\int_{\Gamma_h} \dot S\, \psi\, dA &= -\int_{\Gamma_h} D\,\Grad S \cdot \Grad \psi \, dA + \int_{\Gamma_h}\Big[rS\big(1-\tfrac{N}{K}\big) - \beta_1 SR - \beta_2 SW\Big] \psi \, dA, \\
+\int_{\Gamma_h} \dot I\, \psi\, dA &= -\int_{\Gamma_h} D\,\Grad I \cdot \Grad \psi \, dA + \int_{\Gamma_h}\big[\beta_1 SR + \beta_2 SW - \sigma I\big] \psi \, dA, \\
+\int_{\Gamma_h} \dot R\, \psi\, dA &= -\int_{\Gamma_h} D\,\Grad R \cdot \Grad \psi \, dA + \int_{\Gamma_h}\big[\sigma I - \alpha R\big] \psi \, dA,
+\end{align}
+with $\Gamma_h$ having no boundary (or, if truncated to a bounded study region, zero-flux/Neumann conditions imposed naturally by omitting boundary terms). We write test functions as $\psi$ rather than $v$ throughout, reserving $v$ for the culling control introduced in Section~\ref{sec:control}. Because $W$ has no diffusion term, Equation~\eqref{eq:W} requires no weak formulation or spatial coupling: it is discretized directly at the nodes,
+\begin{equation}
+\dot W_i = \rho R_i - \delta W_i, \qquad i=1,\dots,N,
+\end{equation}
+where $R_i, W_i$ are the nodal values of $R$ and $W$. This makes $W$'s update purely local and embarrassingly parallel across mesh nodes.
+
+\subsection{Semi-discrete system}
+
+Expanding $S_h = \sum_i S_i(t)\varphi_i$ (and similarly for $I_h, R_h$) yields the semi-discrete system
+\begin{align}
+M\dot{\mathbf{S}} &= -A_D\,\mathbf{S} + \mathbf{F}_S(\mathbf{S},\mathbf{I},\mathbf{R},\mathbf{W}), \\
+M\dot{\mathbf{I}} &= -A_D\,\mathbf{I} + \mathbf{F}_I(\mathbf{S},\mathbf{I},\mathbf{R},\mathbf{W}), \\
+M\dot{\mathbf{R}} &= -A_D\,\mathbf{R} + \mathbf{F}_R(\mathbf{I},\mathbf{R}), \\
+\dot{\mathbf{W}} &= \rho\,\mathbf{R} - \delta\,\mathbf{W},
+\end{align}
+where $M_{ij} = \int_{\Gamma_h}\varphi_i\varphi_j\,dA$ is the (consistent) mass matrix, $[A_D]_{ij} = \int_{\Gamma_h} D\,\Grad\varphi_i\cdot\Grad\varphi_j\,dA$ is the stiffness matrix built with the spatially varying diffusivity $D(\mathbf{x})$ from Section~\ref{sec:model}, and $\mathbf{F}_S,\mathbf{F}_I,\mathbf{F}_R$ are the vectors of $L^2$-projected reaction terms (including the environmental coupling $\beta_2 S W$, evaluated using the nodal values of $\mathbf{W}$). A lumped mass matrix $M_L = \mathrm{diag}(M\mathbf{1})$ is used in place of $M$. It is obtained by integrating the mass terms with a vertex quadrature rule: at the vertices $\varphi_i\varphi_j = \delta_{ij}$, so the off-diagonal entries vanish by construction while the row sums, and hence the total mass, are preserved exactly (since $\sum_j\varphi_j\equiv1$ gives $\sum_j M_{ij} = \int_{\Gamma_h}\varphi_i\,dA$). Lumping serves two purposes: it makes the mass matrix diagonal and trivially invertible, and --- more importantly --- it preserves positivity of the discrete solution. The consistent mass matrix carries strictly positive off-diagonal entries $\int_{\Gamma_h}\varphi_i\varphi_j\,dA>0$, which destroy the M-matrix structure of $M+\Delta t A_D$ and allow the implicit diffusion step to undershoot on sharp initial data; the resulting negative densities reverse the sign of the logistic term $rS(1-N/K)$ and drive the solution to blow up. With $M_L$ the off-diagonals are zero and, on a mesh with no obtuse angles, $M_L + \Delta t A_D$ is an M-matrix, so a non-negative right-hand side yields a non-negative solution. For the piecewise-linear elements used here, lumping is an $O(h^2)$-consistent quadrature and therefore costs no order of accuracy. Both sides of the update are lumped, so that the scheme is genuinely $(M_L+\Delta t A_D)\mathbf{S}^{n+1} = M_L\mathbf{S}^n + \Delta t\,\mathbf{F}_S$; the nonlinear reaction terms $SR$, $SW$, and $SN/K$ are retained on a Gauss rule rather than being collapsed to nodal evaluations. The $\mathbf{W}$ equation, having no stiffness matrix, is simply a diagonal (nodewise) linear ODE.
+
+Both $M$ and $A_D$ are symmetric: the mass matrix trivially so, and the stiffness matrix because the diffusion tensor is symmetric at every point (Section~\ref{sec:impl-diffusion}). This is not merely an efficiency remark; Section~\ref{sec:discrete-adjoint} shows that it is exactly what allows the adjoint sweep to reuse the forward operator's factorization without modification.
+
+\subsection{Time integration}
+
+Because the diffusion terms in $S,I,R$ are linear and potentially stiff (governed by the locally small diffusivities $D_s$ near steep terrain) while the reaction and environmental-coupling terms are nonlinear but non-stiff, we integrate in time using an implicit--explicit (IMEX) scheme: the diffusion operator is treated implicitly and the reaction/coupling terms explicitly. A first-order IMEX (semi-implicit Euler) step from $t^n$ to $t^{n+1}=t^n+\Delta t$ reads
+\begin{equation}
+\big(M_L + \Delta t\,A_D\big)\,\mathbf{S}^{n+1} = M_L\,\mathbf{S}^n + \Delta t\,\mathbf{F}_S(\mathbf{S}^n,\mathbf{I}^n,\mathbf{R}^n,\mathbf{W}^n),
+\label{eq:imex}
+\end{equation}
+and analogously for $\mathbf{I}^{n+1}$ and $\mathbf{R}^{n+1}$; since Equation~\eqref{eq:W} has no diffusion, the environmental compartment may be updated with a simple (explicit or exactly-integrated, since it is linear) local step,
+\begin{equation}
+W_i^{n+1} = W_i^n e^{-\delta \Delta t} + \rho R_i^n\,\frac{1-e^{-\delta\Delta t}}{\delta}
+\end{equation}
+(an exponential/exact update for the linear decay-plus-source ODE at each node, which is unconditionally stable regardless of $\Delta t$), or with the same explicit Euler step used for the reaction terms if consistency with the other compartments' time-stepping order is preferred. Because CWD dynamics evolve over years, $\Delta t$ can typically be taken much larger (e.g.\ days to weeks) than would be appropriate for an acute, fast-burning epizootic, though it should still be chosen small enough to resolve the fastest process retained in the model (typically the direct/environmental transmission terms during an active outbreak). Higher-order IMEX Runge--Kutta schemes may be substituted for the $S,I,R$ compartments to relax the time step restriction while retaining implicit treatment of diffusion; the exact update for $W$ remains valid at any order.
+
+\section{Implementation}
+\label{sec:implementation}
+
+The model of Section~\ref{sec:model} and the discretization of Section~\ref{sec:fem} are implemented in \textsc{FEniCSx} (\texttt{DOLFINx}), using \texttt{basix.ufl} for element and mixed-space construction, \texttt{UFL} for the variational forms, and \texttt{PETSc} (via \texttt{petsc4py}) for linear algebra and solvers. Mesh I/O uses \texttt{dolfinx.io.gmsh.read\_from\_msh} to import a Gmsh-generated triangulation of $\Gamma$, and solution fields are written to XDMF/HDF5 for visualization in ParaView.
+
+\subsection{Notation correspondence}
+
+The solver code uses variable names that differ slightly from the symbols of Section~\ref{sec:model}; Table~\ref{tab:code-notation} gives the correspondence used throughout this section. The clinical/infectious compartment $R$ is named \texttt{D} (``dying'') in the code, and the environmental compartment $W$ is named \texttt{E} (``environment''). \emph{Note:} in the implementation, \texttt{beta} (direct transmission) plays the role of $\beta_1$ as expected, but \texttt{rho} is used for the \emph{environmental transmission rate} (i.e.\ the role of $\beta_2$ in Section~\ref{sec:model}), while the \emph{environmental shedding rate} (the role of $\rho$ in Section~\ref{sec:model}) is named \texttt{p\_env}. This is the opposite convention from the Greek-letter assignment used in Section~\ref{sec:model}, and it is a genuine trap when reading the source: \texttt{rho} in the code is $\beta_2$ in the text, and $\rho$ in the text is \texttt{p\_env} in the code. Table~\ref{tab:code-notation} is the authority. Renaming the two identifiers would be a worthwhile piece of housekeeping, and would touch the parameter file as well as the forms.
+
+\begin{table}[h]
+\centering
+\caption{Correspondence between the mathematical symbols of Section~\ref{sec:model} and identifiers in the DOLFINx implementation.}
+\label{tab:code-notation}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Math (Sec.~\ref{sec:model}) & Code identifier & Role \\
+\midrule
+$S,I,R,W$ & \texttt{uS, uI, uD, uE} (subfunctions of \texttt{U}) & state variables \\
+$r$ & \texttt{r} & intrinsic growth rate \\
+$K(\mathbf{x})$ & \texttt{K\_func} & carrying capacity field \\
+$S_\infty(\mathbf{x})$ & \texttt{S\_equilibrium} & disease-free susceptible field (Section~\ref{sec:spinup}) \\
+$\beta_1$ & \texttt{beta} & direct transmission rate \\
+$\beta_2$ & \texttt{rho} & environmental transmission rate \\
+$\sigma$ & \texttt{sigma} & latent $\to$ shedding progression rate \\
+$\alpha$ & \texttt{alpha} & CWD removal rate of shedding deer \\
+$\rho$ (shedding) & \texttt{p\_env} & environmental prion shedding rate \\
+$\delta$ & \texttt{delta\_e} & environmental prion decay rate \\
+$D(\mathbf{x})$ & \texttt{DTens} & anisotropic diffusion tensor (Section~\ref{sec:impl-diffusion}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Function spaces}
+
+Rather than solving three separate scalar problems as suggested schematically in Section~\ref{sec:fem}, the implementation assembles a single \emph{monolithic mixed system} for all four compartments at once. A degree-1 Lagrange (CG1) element \texttt{P1} is defined on the mesh, and a mixed element
+\[
+\texttt{mixed} = \texttt{basix.ufl.mixed\_element}([P_1,P_1,P_1,P_1])
+\]
+is used to build a single function space $P = V_S \times V_I \times V_R \times V_W$ containing all four fields. Trial and test functions \texttt{U},\texttt{V} $\in P$ are split into components \texttt{(uS,uI,uD,uE)} and \texttt{(vS,vI,vD,vE)} via \texttt{ufl.split}, and the previous-time-step solution \texttt{U0} is split the same way for use in the (explicit) reaction terms. A separate scalar CG1 space \texttt{V\_scal} is used for auxiliary fields (land cover class, land-cover diffusivity scale, carrying capacity), for the control field of Section~\ref{sec:control}, and for output.
+
+\subsection{Data fields: land cover and carrying capacity}
+
+Land cover classes and a land-cover-dependent diffusivity scale are precomputed (outside the solver, by aligning MRLC land-cover raster data to mesh vertex longitude/latitude, as described in Section~\ref{sec:domain}) and supplied as flat \texttt{.npy} arrays, one value per mesh vertex. These are loaded and checked against the scalar function space's DOF count, then assigned directly into the array (\texttt{.x.array}) of a \texttt{Function} on \texttt{V\_scal}:
+\begin{itemize}
+\item \texttt{land\_cover\_func}: the land cover classification at each vertex (used only for record-keeping/visualization);
+\item \texttt{lcD\_scale}: a scalar land-cover diffusivity multiplier $\ell(\mathbf{x})$, playing the role of the land-cover contribution to $D$ described in Section~\ref{sec:model} (generalizing the constant $D_c=\kappa_2$ of the original write-up to a spatially varying field);
+\item \texttt{K\_func}: the local carrying capacity, computed from the land cover class array by the helper \texttt{land\_cover\_to\_carrying\_capacity} (implementing $K(\mathbf{x})=K_0\,c(\mathbf{x})$ of Section~\ref{sec:carrying} via the parameter file's class-to-coefficient table). It appears in the logistic term of every time step, and is also the starting iterate for the disease-free spin-up of Section~\ref{sec:spinup} that produces the susceptible initial condition.
+\end{itemize}
+
+\subsection{Anisotropic terrain-aware diffusion tensor}
+\label{sec:impl-diffusion}
+
+The implementation refines the scalar diffusivity $D=D_s+D_c$ of Section~\ref{sec:model} into a genuine \emph{anisotropic} tensor, distinguishing diffusion along the local steepest-descent (uphill/downhill) direction from diffusion along the perpendicular, contour-following direction. Let $\mathbf{n}$ be the (UFL built-in) cell normal on $\Gamma_h$, obtained via \texttt{CellNormal(domain)}, and let $\mathbf{g}=(0,0,-1)$ be the downward vertical direction. Define
+\[
+\cos\theta = \mathbf{g}\cdot\mathbf{n},
+\]
+the (signed) cosine between the downward vertical and the local surface normal, playing the same geometric role as $\cos\phi$ in Section~\ref{sec:model} (up to the sign/direction convention of the reference vector). The local downhill tangent direction is the projection of $\mathbf{g}$ onto the tangent plane of $\Gamma_h$, normalized:
+\[
+\mathbf{e}_s = \frac{\mathbf{g}-(\mathbf{g}\cdot\mathbf{n})\mathbf{n}}{\big\lVert \mathbf{g}-(\mathbf{g}\cdot\mathbf{n})\mathbf{n}\big\rVert},
+\]
+with a fallback to a projected horizontal reference direction $\mathbf{e}_1 = (1,0,0)$ (also projected onto the tangent plane and normalized) whenever the surface is locally flat and the downhill direction is numerically undefined (projection norm below a small tolerance).
+
+A smooth activation function interpolates the slope-dependent diffusivity between an ``isotropic'' floor and the full land-cover scale $\kappa$ as the terrain steepens:
+\begin{equation}
+a(\theta) = \frac{1+\exp\!\big(k(c-1)\big)}{1+\exp\!\big(k(c-|\cos\theta|)\big)}, \qquad
+D_s = \kappa\big[\,\iota + (1-\iota)\,a(\theta)\,\big], \qquad D_c = \kappa,
+\end{equation}
+where $k=$~\texttt{activation\_steepness}, $c=$~\texttt{activation\_cosine\_threshold}, and $\iota=$~\texttt{isotropy} $\in[0,1]$ is a floor parameter controlling the minimum (fully isotropic) diffusivity fraction retained on steep terrain. By construction $a(\theta)=1$ exactly when $|\cos\theta|=1$ (locally flat terrain), so $D_s=\kappa=D_c$ there automatically --- this replaces the explicit normalization constant $\kappa_1=\kappa_2(1+e^{-2})$ derived by hand in Section~\ref{sec:model} with an activation function that is normalized to match $D_c$ at zero slope by construction.
+
+The full diffusion tensor combines an enhanced/reduced diffusivity $D_s$ along the downhill direction $\mathbf{e}_s$ with the isotropic tangential diffusivity $D_c$ in the remaining tangent directions, scaled by the local land-cover multiplier $\ell(\mathbf{x})=$~\texttt{lcD\_scale}:
+\begin{equation}
+D(\mathbf{x}) = \ell(\mathbf{x})\Big[(D_s-D_c)\,\mathbf{e}_s\otimes\mathbf{e}_s \;+\; D_c\,(\mathbb{I}-\mathbf{n}\otimes\mathbf{n})\Big],
+\label{eq:Dtens}
+\end{equation}
+where $\mathbb{I}$ is the $3\times3$ identity and $\mathbb{I}-\mathbf{n}\otimes\mathbf{n}$ is the projector onto the tangent plane of $\Gamma_h$ (so $D_c(\mathbb{I}-\mathbf{n}\otimes\mathbf{n})$ alone would be isotropic tangential diffusion at rate $D_c$, and the $\mathbf{e}_s\otimes\mathbf{e}_s$ term perturbs only the downhill/uphill direction to rate $D_s$). This tensor is assembled directly as a UFL expression (\texttt{DTens}) and used identically in each compartment's diffusion term. Both terms of \eqref{eq:Dtens} are outer products of a vector with itself, hence symmetric, so $D=D^{\mathsf T}$ pointwise --- the property invoked in Sections~\ref{sec:adjoint-derivation} and~\ref{sec:discrete-adjoint}.
+
+Finally, each PDE compartment is allowed its own scalar mobility multiplier, \texttt{DS}, \texttt{DI}, \texttt{DD} (\texttt{compartment\_scales.susceptible/infected/dying} in the parameter file), so that, e.g., clinically affected (dying) deer can be modeled as less mobile than susceptible deer: the diffusion term for compartment $X\in\{S,I,R\}$ uses $D_X \equiv D_X^{\text{scale}}\,D(\mathbf{x})$. The environmental compartment $W$ has no diffusion term at all, consistent with Section~\ref{sec:model}.
+
+\subsection{Variational forms and monolithic assembly}
+\label{sec:monolithic}
+
+Because the bilinear form
+\begin{equation}
+a(U,\Psi) = \sum_{X\in\{S,I,R\}} \int_{\Gamma_h}\Big[\,u_X \psi_X + \Delta t\,(D_X\,\Grad u_X)\cdot\Grad \psi_X\Big]\,dA \;+\; \int_{\Gamma_h} u_W \psi_W\, dA
+\label{eq:bilinear}
+\end{equation}
+depends only on the (time-independent) mesh geometry, land cover, and diffusion parameters -- not on the current solution -- it is assembled and factorized \emph{once}, before the time loop, and the cached factorization is reused unchanged at every time step. This is the key efficiency gain of treating diffusion implicitly with a fixed operator, as anticipated in Section~\ref{sec:fem}. The mass terms $u_X\psi_X$ are integrated with the vertex rule of Section~\ref{sec:fem}, so the mass contribution is the lumped matrix $M_L$; the stiffness terms use a Gauss rule. We write $B$ for the operator defined by \eqref{eq:bilinear}.
+
+Note that \eqref{eq:bilinear} contains \emph{no cross-compartment terms}: every integrand pairs $u_X$ with $\psi_X$ for one and the same $X$. $B$ is therefore block diagonal by compartment,
+\begin{equation}
+B = \operatorname{blockdiag}\big(\,\underbrace{M_L + \Delta t\,D_S^{\text{scale}}A_D}_{B_S},\;\underbrace{M_L + \Delta t\,D_I^{\text{scale}}A_D}_{B_I},\;\underbrace{M_L + \Delta t\,D_R^{\text{scale}}A_D}_{B_R},\;\underbrace{M_L}_{B_W}\,\big),
+\label{eq:blockdiag}
+\end{equation}
+and is never assembled as a single matrix. Each block is factorized on the scalar space instead, which is worth doing for three reasons. First, $B_W$ carries no stiffness matrix and is simply the lumped mass, i.e.\ \emph{diagonal}; assembled monolithically, a quarter of the unknowns would be pushed through a sparse triangular solve to accomplish a vector division. Second, blocks with equal mobility are the \emph{same matrix} --- with the adopted $D_S^{\text{scale}} = D_I^{\text{scale}} = 1$ only two distinct factorizations exist --- so one factorization serves both $S$ and $I$. Third, sparse-factorization fill grows superlinearly, so factoring the blocks of \eqref{eq:blockdiag} separately is cheaper than factoring their direct sum even when the ordering does keep the components apart. Solving blockwise is an exact restatement of the same linear system, so nothing about the discretization or the adjoint identity of Section~\ref{sec:discrete-adjoint} changes; each block is symmetric, and hence so is $B$.
+
+The linear form $l(\Psi;U^n)$ collects all reaction and coupling terms evaluated explicitly at the previous time level $U^n$ (\texttt{U0}), matching the semi-implicit (IMEX) Euler update of Section~\ref{sec:fem}:
+\begin{itemize}
+\item the $S$-row implements logistic growth $r S^n(1-N^n/K)$, direct transmission $-\beta_1 S^n R^n$, and environmental transmission $-\beta_2 S^n W^n$; a \texttt{ufl.conditional} switches to pure exponential decay $-rS^n$ wherever $K(\mathbf{x})<0.01$, avoiding division by (near-)zero carrying capacity over water or other non-habitat cells;
+\item the $I$-row implements the corresponding transmission inflows $+\beta_1 S^n R^n + \beta_2 S^n W^n$ and the progression outflow $-\sigma I^n$;
+\item the $R$-row implements progression inflow $+\sigma I^n$, removal $-\alpha R^n$, and --- in the controlled solver of Section~\ref{sec:control-implementation} --- the culling term $-v^n R^n$;
+\item the $W$-row implements shedding inflow $+\rho R^n$ and decay $-\delta W^n$, with no diffusion contribution, matching the reduced (mass-only) block of $a(U,\Psi)$ for this compartment.
+\end{itemize}
+Only the vector \texttt{L} (not the matrix \texttt{A}) is reassembled at every step, from the current \texttt{U0}; the linear form itself is compiled (\texttt{fem.form(l)}) once, so each time step costs one vector assembly plus one triangular back-substitution against the cached LU factors of \texttt{A} -- no new matrix assembly or factorization is required after the first step.
+
+\subsection{Disease-free spin-up}
+\label{sec:spinup}
+
+The susceptible initial condition $S_\infty$ of Section~\ref{sec:params-ic} is not available in closed form --- \eqref{eq:disease-free} is a nonlinear elliptic problem on the same anisotropic tensor as the full system --- so it is computed by relaxation, in a preliminary solve implemented in \texttt{utilities/susceptible\_spinup.py} and run before the state solver's time loop. With $I=R=W\equiv0$, the mixed system collapses to its $S$ block, and the same lumped-mass IMEX step of Section~\ref{sec:monolithic} applies to it unchanged:
+\begin{equation}
+\big(M_L + \Delta t\,D_S^{\text{scale}} A\big)\,\mathbf{S}^{n+1} \;=\; M_L\mathbf{S}^{n} \;+\; \Delta t\,\mathbf{f}(\mathbf{S}^n),
+\label{eq:spinup-step}
+\end{equation}
+where $A$ is the stiffness matrix of $D(\mathbf{x})$ on the scalar space \texttt{V\_scal} and $\mathbf{f}$ assembles the same conditional growth term as the $S$-row of Section~\ref{sec:monolithic}. The iteration starts from $\mathbf{S}^0 = \mathbf{K}$ and runs until
+\begin{equation}
+\frac{\max_i\big|S_i^{n+1}-S_i^{n}\big|}{\Delta t\,\max_i K_i} \;<\; \varepsilon_{\text{drift}},
+\label{eq:spinup-stop}
+\end{equation}
+or until the cap $T_{\text{spin}}$ is reached, in which case the solver warns that the field it is about to use is not converged. Normalizing by $\max_i K_i$ in \eqref{eq:spinup-stop} makes the criterion relative, so the tolerance carries no density units and does not need to be re-tuned when $K_0$ changes.
+
+Mass lumping matters more here than anywhere else in the code. The iteration starts from $\mathbf{K}$, which is piecewise constant and therefore as sharp as data on this mesh can be; with the consistent mass matrix the first implicit step would undershoot at the patch boundaries, and a negative $S$ flips the sign of the logistic term and diverges. With $M_L$ the operator in \eqref{eq:spinup-step} is an M-matrix and the step is non-negativity-preserving.
+
+Because $S_\infty$ depends only on the mesh, the two land-cover arrays, and the parameters $r,\kappa,\iota,c,k,D_S^{\text{scale}},\Delta t,\varepsilon_{\text{drift}}$ --- and on nothing that varies between runs, the control $v$ included --- it is computed once per mesh bundle and cached beside the mesh as \texttt{susceptible\_equilibrium.npy}, with a companion \texttt{.json} recording exactly those inputs (the three array-valued ones as content digests). A later run reuses the cached field only if that record still matches; otherwise it recomputes and reports which entry changed, so that editing the land cover or $\kappa$ cannot silently leave a stale equilibrium in place. The cache is written only in serial runs, since like \texttt{land\_cover\_classes.npy} the array is indexed by local DOF and is meaningful only for the partition that produced it; under MPI the spin-up is simply repeated, at the cost of one scalar solve.
+
+One caveat on exactness. The reaction term in \eqref{eq:spinup-step} is integrated on the explicitly pinned Gauss rule of Section~\ref{sec:discrete-adjoint}, which matches the control solver but not the uncontrolled \texttt{CWD\_solver.py}, where the degree is left to UFL's estimator. The saved field is therefore an exact discrete steady state of neither driver, only an $O(h^2)$ neighbour of both. This is immaterial for its purpose: the residual transient it leaves is of the order of the discretization error, set against the order-one transient it removes.
+
+\subsection{Initial conditions}
+
+At $t=0$, susceptibles are initialized at the disease-free equilibrium, $S(\mathbf{x},0)=S_\infty(\mathbf{x})$, by loading or computing the field of Section~\ref{sec:spinup} into a \texttt{Function} on \texttt{V\_scal}, interpolating it onto the collapsed susceptible subspace, and copying the result into the susceptible block of the mixed solution vector via that subspace's DOF map. (Setting \texttt{susceptible\_spinup.enabled} to \texttt{false} in the parameter file restores the earlier behaviour $S(\mathbf{x},0)=K(\mathbf{x})$, which is retained only for reproducing runs made before the spin-up existed.) The infected compartment is initialized as a superposition of isotropic Gaussian ``outbreak foci'' specified in the parameter file (center, mean amplitude, standard deviation for each), evaluated pointwise at mesh coordinates:
+\[
+I(\mathbf{x},0) = \sum_{g} m_g \exp\!\Big(-\frac{\lVert \mathbf{x}_{\parallel}-\mathbf{c}_g\rVert^2}{2\varsigma_g^2}\Big),
+\]
+summed over configured Gaussians $g$ with center $\mathbf{c}_g$, mean $m_g$, and standard deviation $\varsigma_g$ (using horizontal $x,y$-coordinates only). Both $R$ (\texttt{uD}) and $W$ (\texttt{uE}) are initialized to zero everywhere, representing a disease-free environment seeded only by initial infections.
+
+\subsection{Time-stepping loop, solver, and output}
+
+The number of time steps is \texttt{total\_steps} $= \lfloor T/\Delta t\rfloor$, with $T=$~\texttt{final\_time\_years} and $\Delta t=$~\texttt{time\_step\_years} (both expressed in years, consistent with the slow, multi-year timescale of CWD dynamics discussed in Section~\ref{sec:model}). Each step: (i) reassembles \texttt{L} from the current \texttt{U0}; (ii) solves $\texttt{A}\,\texttt{U1}=\texttt{L}$ using the pre-factorized direct solver; (iii) copies \texttt{U1} into \texttt{U0} and performs a ghost-value update (\texttt{scatter\_forward}) for MPI-distributed meshes; and (iv) periodically (every third step, to limit I/O volume) interpolates each compartment onto the scalar output space and writes it to its own XDMF/HDF5 time series (\texttt{CWD\_S}, \texttt{CWD\_I}, \texttt{CWD\_D}, \texttt{CWD\_E}) for visualization in ParaView. A lightweight text progress bar reports completed steps on the root MPI rank.
+
+The workflow is \emph{serial}. Nothing in the discretization prevents a distributed run --- DOLFINx would partition the mesh and assemble across ranks without any explicit domain-decomposition logic in the drivers --- but the nodal \texttt{.npy} arrays that carry the land cover into the solver are indexed by local degree of freedom and hold no global node identifiers, so they are meaningful only for the partition that wrote them. Rather than silently permute the land cover, \texttt{CompartmentBlockSolver} refuses to run on more than one rank. Lifting the restriction means giving the mesh bundle a partition-independent index, not changing the solver.
+
+No boundary conditions are currently applied (\texttt{dirichletbc} and \texttt{locate\_dofs\_topological} are imported but unused in the driver shown here), so the discrete problem defaults to the natural zero-flux (homogeneous Neumann) condition implied by the weak formulation of Section~\ref{sec:fem} wherever $\Gamma_h$ has a boundary; imposing Dirichlet or absorbing conditions at specific boundary facets (e.g.\ to represent water bodies or fencing) would require adding the corresponding \texttt{dirichletbc} objects to the solve.
+
+% ======================================================================
+\section{An Optimal Control Problem: Targeted Culling}
+\label{sec:control}
+% ======================================================================
+
+The model of Sections~\ref{sec:model}--\ref{sec:implementation} predicts what happens if nothing is done. We now use it as a constraint in a management problem: given a finite planning horizon $[0,T]$ and a culling operation whose intensity may be varied across the landscape and over time, where and when should that effort be spent?
+
+\subsection{The control and the controlled state system}
+
+We introduce a \emph{culling control}
+\[
+v : \Gamma\times(0,T) \longrightarrow \mathbb{R},
+\]
+interpreted as a per-capita removal rate (units of year$^{-1}$) applied to the \emph{shedding} class $R$. Culling therefore enters the model as an additional loss term $-vR$ in Equation~\eqref{eq:R}, removing shedding animals from the population entirely rather than moving them to another compartment. Since the model carries no harvest term of its own (Section~\ref{sec:params-mortality}), $v$ is \emph{total} removal effort on the shedding class, and $v\equiv 0$ is an unmanaged herd rather than a status-quo managed one.
+
+Targeting $R$ rather than $I$ is the choice that makes the control problem worth posing. $R$ is the only compartment that drives \emph{both} transmission routes --- directly through $\beta_1 SR$ and indirectly by generating the environmental reservoir through $\rho R$ --- so removing a shedding animal cuts both at once and, through $W$, keeps paying after the animal is gone. Removing an animal from $I$ only delays its arrival in $R$; it buys time rather than preventing contamination, and it does so at the cost of acting on a class that is not the one actually causing harm. (An earlier draft of this work culled $I$, on the reasoning that one should remove animals \emph{before} they shed. That intuition is sound but it is already priced in: $\lambda_I$ inherits the full downstream cost of the cascade $I \to R \to W$ through the adjoint chain of Section~\ref{sec:adjoint-system}, so the optimizer does not need the control to be pointed at $I$ in order to value early removal.)
+
+One caveat should be stated plainly, because it is a limitation of the formulation rather than of the parameters. $R$ lumps pre-clinical shedders --- roughly 36 of its 53 weeks, and indistinguishable from healthy deer in the field --- with visibly clinical animals. A control acting on all of $R$ therefore presupposes test-and-cull, or some other means of detecting pre-clinical infection. A purely sight-based cull would reach only the clinical fraction, about a third of $R$, and modelling it faithfully would require splitting $R$ in two.
+
+The controlled state system is
+\begin{align}
+\dot S &= \Div\big(D_S\,\Grad S\big) + rS\Big(1-\frac{N}{K}\Big) - \beta_1 S R - \beta_2 S W, \label{eq:cS} \\
+\dot I &= \Div\big(D_I\,\Grad I\big) + \beta_1 S R + \beta_2 S W - \sigma I, \label{eq:cI} \\
+\dot R &= \Div\big(D_R\,\Grad R\big) + \sigma I - \alpha R \;-\; v\,R, \label{eq:cR} \\
+\dot W &= \rho R - \delta W, \label{eq:cW}
+\end{align}
+on $\Gamma\times(0,T)$, with initial data
+\begin{equation}
+S(\cdot,0)=S_0,\quad I(\cdot,0)=I_0,\quad R(\cdot,0)=0,\quad W(\cdot,0)=0
+\label{eq:ic}
+\end{equation}
+as in Section~\ref{sec:implementation} --- with $S_0 = S_\infty$ the disease-free equilibrium of Sections~\ref{sec:params-ic} and~\ref{sec:spinup} and $I_0$ the Gaussian foci. Note that \eqref{eq:ic} carries no dependence on $v$: the spin-up that produces $S_\infty$ runs with no infection present and hence with no culling, so the initial state is control-independent, a fact used in Section~\ref{sec:discrete-adjoint}. The system is closed with homogeneous Neumann (zero-flux) conditions
+\begin{equation}
+\big(D_X\Grad X\big)\cdot\boldsymbol\nu = 0 \quad\text{on }\partial\Gamma\times(0,T), \qquad X\in\{S,I,R\},
+\label{eq:cbc}
+\end{equation}
+where $\boldsymbol\nu$ is the outward conormal of $\partial\Gamma$ within $\Gamma$ (vacuous when $\Gamma$ is closed). Here $D_X = D_X^{\text{scale}}D(\mathbf{x})$ denotes the compartment-scaled diffusion tensor of Section~\ref{sec:impl-diffusion}. It is convenient to collect the state in a single vector
+\[
+y = (y_S,y_I,y_R,y_W) := (S,I,R,W),
+\]
+and to write the reaction terms of \eqref{eq:cS}--\eqref{eq:cW}, \emph{including} the control term, as $f = (f_S,f_I,f_R,f_W)$:
+\begin{equation}
+\begin{aligned}
+f_S(y,v) &= G(S,I,R) - \beta_1 SR - \beta_2 SW, \qquad
+&&G(S,I,R) := rS\Big(1-\frac{S+I+R}{K}\Big),\\
+f_I(y,v) &= \beta_1 SR + \beta_2 SW - \sigma I, \qquad
+&&f_R(y,v) = \sigma I - (\alpha+v) R,\\
+f_W(y,v) &= \rho R - \delta W. &&
+\end{aligned}
+\label{eq:fdef}
+\end{equation}
+With $D_W := 0$, the state system reads compactly as
+\begin{equation}
+\dot y_k = \Div\big(D_k\Grad y_k\big) + f_k(y,v), \qquad k\in\{S,I,R,W\}.
+\label{eq:state-compact}
+\end{equation}
+
+\subsection{Admissible controls and the objective functional}
+
+Culling effort is bounded above by logistics and below by zero: one cannot cull a negative number of animals. We therefore restrict attention to the admissible set
+\begin{equation}
+\Vad = \Big\{\,v\in L^\infty\big(\Gamma\times(0,T)\big)\;:\;0\le v(\mathbf{x},t)\le v_{\max}\ \text{ for a.e. }(\mathbf{x},t)\,\Big\},
+\end{equation}
+a closed, bounded, convex subset of $L^2(\Gamma\times(0,T))$. The upper bound $v_{\max}$ is the largest sustained per-capita removal rate the management program can achieve.
+
+\paragraph{Piecewise-constant-in-time controls.} The implementation optimizes over a closed convex \emph{subset} of $\Vad$: controls that are constant in time on each of $N_b$ blocks $[t_{b-1},t_b)$ partitioning $[0,T]$,
+\begin{equation}
+\Vad^{\,b} = \Big\{\,v\in\Vad \;:\; v(\mathbf{x},t) = v_b(\mathbf{x})\ \text{ for } t\in[t_{b-1},t_b),\ b=1,\dots,N_b \,\Big\} \subset \Vad,
+\label{eq:Vadblock}
+\end{equation}
+with annual blocks ($t_b - t_{b-1} = 1$~yr, so $N_b = 20$) adopted by default. Because $\Vad^{\,b}\subset\Vad$, the attained minimum is an upper bound for the minimum over $\Vad$; the restriction cannot help the optimizer and must be justified on its own terms. Two arguments do so.
+
+The first is about the model. An unrestricted $v$ is free to change on the time-step scale, here every $7.3$~days. No management agency re-tunes a cull at that cadence; quotas are set annually, and a control that oscillates weekly is not implementable even if it is optimal. Restricting to \eqref{eq:Vadblock} moves the admissible set \emph{toward} what can actually be enacted, so the reported $J$ is a more honest estimate of an achievable cost than the unrestricted optimum would be.
+
+The second is computational, and is what makes the algorithm of Section~\ref{sec:algorithm} tractable at realistic mesh sizes. The discrete control is one CG1 field per block, so its dimension is $N_b\times N$; at $N = 210{,}058$ nodes and $N_t = 1000$ steps an unrestricted control carries $2.1\times10^8$ degrees of freedom, or $1.6$~GiB per copy, and the limited-memory quasi-Newton method below --- which retains $2m+5$ vectors of that size --- would need some $39$~GiB at $m=10$. Annual blocking divides both by fifty. Shorter blocks are available (a quarter-year block would resolve, say, a hunting season) at proportionate cost, and setting the block length to $\Delta t$ recovers $\Vad$ itself.
+
+Nothing else in the derivation changes. Since $v$ is constant across the steps of a block, the chain rule gives the block's reduced gradient as the \emph{sum} of the per-step gradients \eqref{eq:discrete-gradient} over that block; dividing by the number of steps and weighting each block by its duration in the space-time inner product leaves $\nabla\hat J$ the Riesz representative it was before, so the Taylor test of Section~\ref{sec:verification} still converges at second order.
+
+The objective functional to be minimized is
+\begin{equation}
+\boxed{\;J(v) \;=\; \int_0^T\!\!\int_\Gamma \Big[\,c_1\,R(\mathbf{x},t) \;+\; c_2\,W(\mathbf{x},t) \;+\; c_3\,v(\mathbf{x},t)^2 \;+\; c_4\,v(\mathbf{x},t)\,\Big]\,d\Gamma\,dt\;}
+\label{eq:objective}
+\end{equation}
+with weights $c_1,c_2,c_4\ge 0$ and $c_3>0$, where $(S,I,R,W)$ is the solution of \eqref{eq:cS}--\eqref{eq:cbc} driven by $v$. The four terms are, in order:
+\begin{itemize}
+\item $c_1 R$ --- the accumulated \emph{shedding} burden. Penalizing $R$ rather than $I$ matches the control's target and, more importantly, matches what actually causes harm: an animal in $I$ transmits nothing and contaminates nothing. The upstream class is not thereby ignored --- $I$ feeds $R$, so a cost on $R$ propagates back to $I$ through the adjoint (Section~\ref{sec:adjoint-system}) and $\lambda_I$ remains strictly positive.
+\item $c_2 W$ --- the accumulated environmental prion load. This term is what makes the CWD control problem qualitatively different from control of an acute directly-transmitted disease: contamination deposited early persists for years ($1/\delta$), so the optimizer is rewarded for acting \emph{early in the epizootic}, while there is still contamination to prevent, and not merely for suppressing prevalence at any given instant.
+\item $c_3 v^2$ --- the super-linear part of the cost of the intervention, the part whose marginal cost $2c_3v$ grows with the effort already being spent. The quadratic penalty is the standard modeling choice: it makes $J$ strictly convex in $v$ for fixed state, which gives a unique minimizer of the linearized problem, keeps the optimal control a \emph{continuous} function of the adjoint (rather than the bang-bang control a purely linear penalty would produce), and reflects the realistic diseconomy of scale in which doubling removal effort in one place costs more than twice as much.
+\item $c_4 v$ --- the cost of the intervention proportional to effort: so many dollars, or so many staff-days, per deer removed. Two things make this term worth carrying alongside the quadratic one rather than treating either as a substitute for the other. It is the more literal description of what a cull costs, the quadratic term being a correction for congestion at high effort. And, as the optimality condition \eqref{eq:pointwise-optimality} will show, it introduces a \emph{threshold}: the optimal effort is exactly zero wherever the local benefit $\lambda_R R$ falls below $c_4$, rather than the whisper of effort everywhere that a purely quadratic penalty produces. That threshold is the ``not here'' half of a cull-here-not-there map, and it is the half a management plan actually needs.
+\end{itemize}
+The combination is an \emph{elastic net} in $v$. Despite the presence of an $L^1$-like term, \eqref{eq:objective} is smooth on $\Vad$: because $v\ge0$ is imposed by the constraint set, $\int|v| = \int v$ there, so the kink of the absolute value sits exactly on the boundary of $\Vad$ and never in its interior. No proximal or splitting machinery is needed anywhere below, and the projected methods of Section~\ref{sec:algorithm} apply unchanged. Setting $c_4=0$ recovers the purely quadratic objective, which is the shipped default.
+Since \eqref{eq:cS}--\eqref{eq:cbc} determines $y$ from $v$, we may regard $J$ as a function of $v$ alone; we call
+\begin{equation}
+\hat J(v) := J\big(y(v),v\big)
+\end{equation}
+the \emph{reduced} objective, and the control problem is
+\begin{equation}
+\min_{v\in\Vad}\ \hat J(v).
+\label{eq:ocp}
+\end{equation}
+Note that $\hat J$ is not convex in $v$: the state system is nonlinear (through $SR$, $SW$, $SN/K$, and $vR$), so $v\mapsto y(v)$ is nonlinear and \eqref{eq:ocp} may in principle possess several local minimizers. The method of Section~\ref{sec:algorithm} is a descent method and therefore locates a stationary point; a good practice is to re-run from several initial guesses.
+
+\subsection{Choosing the weights}
+
+Only the ratios $c_1:c_2:c_3:c_4$ matter, since scaling $J$ by a positive constant leaves the minimizer unchanged. The weights carry units --- $c_1$ is (cost)$\cdot$km$^2$/(deer$\cdot$year), $c_2$ is (cost)$\cdot$km$^2$/(prion-unit$\cdot$year), $c_3$ is (cost)$\cdot$km$^2\cdot$year, and $c_4$ is (cost)$\cdot$km$^2$ --- and should be chosen so that the integrals in \eqref{eq:objective} are of comparable magnitude at a representative control, otherwise the optimizer effectively ignores the smallest term. A practical calibration is to run the uncontrolled model once, record the integrals evaluated at $v\equiv \tfrac12 v_{\max}$, and rescale.
+
+Applying that recipe with the parameters of Section~\ref{sec:params} gives the adopted values $c_1 = 1$, $c_2 = 0.5$, $c_3 = 2$, all \tagGUESS{}. The reasoning is as follows. Fix $c_1 = 1$ as the numeraire. The environmental compartment settles at its quasi-equilibrium $W = \rho R/\delta = 2R$ exactly, so a unit weight on $W$ would give the environmental term precisely twice the leverage of the shedding term for the same underlying burden; $c_2 = 0.5$ puts them on equal footing. (That this ratio is exact, rather than approximate, is a small dividend of costing $R$ instead of $I$: $W$ and $R$ are related by a single linear ODE, whereas $W$ and $I$ are not.) For $c_3$, at half effort $v = \tfrac12 v_{\max} = 0.5$ the control term is $c_3 v^2 = 0.25\,c_3$, which at $c_3 = 2$ is $0.5$, against $c_1 R$ at the scale of the endemic shedding density $R^* = 0.70$ deer/km$^2$ --- the two within a factor of $1.4$, which is what ``comparable'' has to mean here. Without a weight of roughly this size the quadratic penalty is negligible against the state terms and the optimizer simply pins $v$ at $v_{\max}$ everywhere, which is not an interesting answer. Note that $c_3 = 4$ was the right figure while the cost weighted $I$, whose endemic density is about twice that of $R$; the change is a consequence of retargeting, not a revision of the recipe. Of these, $c_3$ is the one most in need of replacement by a real per-deer cull cost set against a real valuation of a shedding deer.
+
+The linear weight $c_4$ is set to $0$ by default, so the shipped configuration is the purely quadratic one and every result below reduces to the familiar case. It is worth raising for two different reasons, and they call for different values. If a genuine per-deer removal cost is available, $c_4$ is where it belongs, and its magnitude is then fixed by the same numeraire as $c_1$. If instead the aim is a \emph{sparse} strategy --- a map that says where not to cull as well as where to --- then $c_4$ is a tuning parameter, and the threshold it sets in \eqref{eq:pointwise-optimality} should be read against the observed range of $\lambda_R R$. The motivation for wanting one is concrete: on a five-year trial the purely quadratic objective returned a peak effort of $0.042\ \mathrm{yr}^{-1}$ against a space-time mean of $0.0045\ \mathrm{yr}^{-1}$, which reads as ``cull everywhere, barely'' and is not implementable as stated. Two diagnostics are worth watching while sweeping $c_4$: the outer-iteration count, and the fraction of the space--time domain sitting at exactly $v=0$, both of which the driver reports.
+
+Raising $c_4$ while lowering $c_3$ has one real cost, and it is a conditioning cost rather than a modelling one. The quadratic weight contributes a uniform $2c_3\mathcal{I}$ floor to the reduced Hessian (Section~\ref{sec:lbfgs}); without it only the compact state-coupling operator remains, and its spectrum decays to zero. The limit $c_3\to0$ is the bang-bang problem, and is where convergence degrades --- a continuous dial, not a cliff, but the reason $c_3>0$ is required rather than merely recommended. One tempting move should be named and refused: since $|v|$ is not differentiable at the origin \emph{in general}, one might reach for a smoothed surrogate such as $\sqrt{v^2+\varepsilon}$. That is unnecessary here, because $v\ge0$ makes the term linear on $\Vad$, and it is actively harmful: the surrogate's curvature is $\varepsilon^{-1/2}$ at the origin and decays like $\varepsilon/v^3$ away from it, a spread of order $10^6$ across the box at $\varepsilon=10^{-6}$, manufacturing exactly the ill-conditioning it was meant to avoid.
+
+The bound $v_{\max}$ deserves the same scrutiny, since it is what makes the box constraint bite. The control is a per-capita removal rate on $R$, so $v_{\max} = 1\ \mathrm{yr}^{-1}$ sustained for a year removes $1 - e^{-1} = 63\%$ of the shedding class --- at or beyond the ceiling of any real agency cull program, and certainly beyond what the most intensive Wisconsin CWD-zone efforts sustained landscape-wide \citep{Wasserberg2009}. \tagGUESS{}. Recall that the model contains no harvest, so this is the whole removal effort on $R$ and not an increment on top of one. An earlier draft used $v_{\max} = 5$, i.e.\ $99.3\%$ annual removal, which left the constraint effectively inactive and let the optimizer buy an unrealistically cheap solution.
+
+% ======================================================================
+\section{Derivation of the Adjoint System}
+\label{sec:adjoint-derivation}
+% ======================================================================
+
+To apply any gradient-based method to \eqref{eq:ocp} we need $\hat J'(v)$. A na\"ive finite-difference gradient would require one state solve per control degree of freedom --- with a control field carrying one value per mesh node per time step, that is hopeless. The adjoint method obtains the entire gradient at the cost of one additional (backward, \emph{linear}) solve, regardless of how many control variables there are. This section derives that adjoint system; the construction is the standard one for PDE-constrained optimization \citep{Hinze2009}, specialized to the surface reaction--diffusion system at hand.
+
+\subsection{The Lagrangian}
+
+Introduce adjoint variables (co-states) $\lambda = (\lambda_S,\lambda_I,\lambda_R,\lambda_W)$ and append the state equations to the objective as constraints:
+\begin{equation}
+\Lag(y,v,\lambda) \;=\; J(y,v) \;-\; \sum_{k}\int_0^T\!\!\int_\Gamma \lambda_k\Big[\dot y_k - \Div\big(D_k\Grad y_k\big) - f_k(y,v)\Big]\,d\Gamma\,dt,
+\label{eq:lagrangian}
+\end{equation}
+the sum running over $k\in\{S,I,R,W\}$. For any $y$ satisfying the state equations, the bracket vanishes and $\Lag = J$ for every choice of $\lambda$; the point of the construction is that we may choose $\lambda$ to eliminate the unknown state sensitivities from the derivative.
+
+It is convenient to name the integrand of the running cost and the Hamiltonian density,
+\begin{equation}
+\ell(y,v) := c_1 R + c_2 W + c_3 v^2 + c_4 v, \qquad
+\Ham(y,v,\lambda) := \ell(y,v) + \sum_k \lambda_k f_k(y,v).
+\label{eq:hamiltonian}
+\end{equation}
+
+\subsection{Differentiating}
+
+Perturb the control, $v \to v + \varepsilon\,\delta v$ with $v+\varepsilon\,\delta v\in\Vad$, and let $\delta y = (\delta S,\delta I,\delta R,\delta W)$ denote the induced state sensitivity, i.e.\ the derivative of $y(v)$ in the direction $\delta v$. Linearizing \eqref{eq:state-compact} about $(y,v)$, the sensitivity satisfies
+\begin{equation}
+\dot{\delta y_k} - \Div\big(D_k\Grad \delta y_k\big) - \sum_j \frac{\partial f_k}{\partial y_j}\,\delta y_j \;=\; \frac{\partial f_k}{\partial v}\,\delta v,
+\label{eq:sensitivity}
+\end{equation}
+with $\delta y_k(\cdot,0)=0$ (the initial data \eqref{eq:ic} does not depend on the control) and the same zero-flux conditions \eqref{eq:cbc}. Note $\partial f_k/\partial v = 0$ except for $\partial f_R/\partial v = -R$.
+
+Taking the Gâteaux derivative of \eqref{eq:lagrangian} in the direction $\delta v$ and using \eqref{eq:sensitivity},
+\begin{equation}
+\delta\Lag = \int_0^T\!\!\int_\Gamma\Big[\frac{\partial \ell}{\partial v}\delta v + \sum_k\frac{\partial \ell}{\partial y_k}\delta y_k\Big]
+\;-\;\sum_k\int_0^T\!\!\int_\Gamma\lambda_k\Big[\dot{\delta y_k} - \Div\big(D_k\Grad\delta y_k\big) - \sum_j\frac{\partial f_k}{\partial y_j}\delta y_j - \frac{\partial f_k}{\partial v}\delta v\Big].
+\label{eq:dLag}
+\end{equation}
+Two integrations by parts move all derivatives off $\delta y$.
+
+\paragraph{In time.} For each $k$,
+\[
+\int_0^T \lambda_k\,\dot{\delta y_k}\,dt \;=\; \Big[\lambda_k\,\delta y_k\Big]_{t=0}^{t=T} - \int_0^T \dot\lambda_k\,\delta y_k\,dt
+\;=\; \lambda_k(T)\,\delta y_k(T) - \int_0^T \dot\lambda_k\,\delta y_k\,dt,
+\]
+the $t=0$ term vanishing because $\delta y_k(0)=0$. The remaining boundary term is removed by imposing the \emph{terminal} condition
+\begin{equation}
+\lambda_k(\cdot,T) = 0, \qquad k\in\{S,I,R,W\}.
+\label{eq:terminal}
+\end{equation}
+This is the origin of the backward-in-time character of the adjoint system: the state carries an initial condition, so the co-state must carry a terminal one. (Had \eqref{eq:objective} included a terminal payoff $\int_\Gamma \Phi(y(T))$, the terminal condition would instead read $\lambda_k(T)=\partial\Phi/\partial y_k$ --- see the remark at the end of Section~\ref{sec:adjoint-system}.)
+
+\paragraph{In space.} Using the surface divergence theorem twice together with the zero-flux conditions \eqref{eq:cbc} on $\delta y_k$ and the same conditions imposed on $\lambda_k$,
+\[
+-\int_\Gamma \lambda_k\,\Div\big(D_k\Grad\delta y_k\big)\,d\Gamma
+= \int_\Gamma \Grad\lambda_k\cdot D_k\Grad\delta y_k \,d\Gamma
+= \int_\Gamma \Grad \delta y_k\cdot D_k^{\mathsf T}\Grad\lambda_k \,d\Gamma
+= -\int_\Gamma \delta y_k\,\Div\big(D_k^{\mathsf T}\Grad\lambda_k\big)\,d\Gamma.
+\]
+Because the diffusion tensor \eqref{eq:Dtens} is a sum of symmetric outer products, $D_k^{\mathsf T}=D_k$, and the surface diffusion operator is \emph{self-adjoint}. The adjoint equations therefore carry the \emph{same} diffusion operator as the state equations --- not its transpose --- which is what will allow the discrete forward and backward sweeps to share a single matrix factorization (Section~\ref{sec:discrete-adjoint}).
+
+\paragraph{Collecting.} Substituting both integrations by parts into \eqref{eq:dLag} and grouping the terms multiplying each $\delta y_k$,
+\begin{equation}
+\delta\Lag = \sum_k\int_0^T\!\!\int_\Gamma \delta y_k\,
+\underbrace{\Big[\dot\lambda_k + \Div\big(D_k\Grad\lambda_k\big) + \frac{\partial \Ham}{\partial y_k}\Big]}_{\text{choose }\lambda\text{ to kill this}}
+\;+\;\int_0^T\!\!\int_\Gamma \frac{\partial\Ham}{\partial v}\,\delta v,
+\label{eq:collected}
+\end{equation}
+where, from \eqref{eq:hamiltonian},
+\[
+\frac{\partial\Ham}{\partial y_k} = \frac{\partial \ell}{\partial y_k} + \sum_j \lambda_j\frac{\partial f_j}{\partial y_k},
+\qquad
+\frac{\partial\Ham}{\partial v} = 2c_3 v + c_4 + \sum_j \lambda_j\frac{\partial f_j}{\partial v} = 2c_3 v + c_4 - \lambda_R R .
+\]
+Choosing $\lambda$ so that the underbraced bracket vanishes leaves a formula for the derivative of the reduced objective that involves \emph{only} $\delta v$ --- the unknown sensitivities $\delta y$ have been eliminated. That choice is the adjoint system.
+
+\subsection{The adjoint system}
+\label{sec:adjoint-system}
+
+Setting the bracket in \eqref{eq:collected} to zero gives the general adjoint equation
+\begin{equation}
+-\dot\lambda_k - \Div\big(D_k\Grad\lambda_k\big) \;=\; \frac{\partial\Ham}{\partial y_k}
+\;=\; \frac{\partial \ell}{\partial y_k} + \sum_{j}\lambda_j\,\frac{\partial f_j}{\partial y_k},
+\qquad \lambda_k(\cdot,T)=0.
+\label{eq:adjoint-general}
+\end{equation}
+To write it out we need the Jacobian of $f$ from \eqref{eq:fdef}. Abbreviating the partial derivatives of the logistic growth term as
+\begin{equation}
+G_S := \frac{\partial G}{\partial S} = r\Big(1-\frac{N}{K}\Big) - \frac{rS}{K},
+\qquad
+G_I = G_R := \frac{\partial G}{\partial I} = \frac{\partial G}{\partial R} = -\frac{rS}{K},
+\label{eq:Gderivs}
+\end{equation}
+the Jacobian is
+\begin{equation}
+\left[\frac{\partial f_j}{\partial y_k}\right]_{j,k}
+=
+\begin{pmatrix}
+G_S - \beta_1 R - \beta_2 W & G_I & G_R - \beta_1 S & -\beta_2 S\\[2pt]
+\beta_1 R + \beta_2 W & -\sigma & \beta_1 S & \beta_2 S\\[2pt]
+0 & \sigma & -\alpha - v & 0\\[2pt]
+0 & 0 & \rho & -\delta
+\end{pmatrix},
+\label{eq:jacobian}
+\end{equation}
+with rows indexed by $j\in\{S,I,R,W\}$ (which equation) and columns by $k$ (with respect to which state). The sum $\sum_j\lambda_j\,\partial f_j/\partial y_k$ appearing in \eqref{eq:adjoint-general} is precisely the $k$-th entry of $\big[\partial f/\partial y\big]^{\mathsf T}\lambda$: \emph{the adjoint system is driven by the transpose of the state Jacobian}, which is why couplings run in the opposite direction from the state system. Finally $\partial\ell/\partial R = c_1$, $\partial\ell/\partial W = c_2$, and $\partial\ell/\partial S = \partial\ell/\partial I = 0$.
+
+Observe where the control lands in \eqref{eq:jacobian}: on \emph{the diagonal alone}, the $(R,R)$ entry gaining $-v$, while every off-diagonal coupling is untouched. This is why it propagates so cheaply through everything downstream --- the adjoint keeps its structure, and only one coefficient and the source row move --- and it is equally why reinstating a background mortality would be cheap, since $-\mu$ would enter the $(I,I)$ and $(R,R)$ entries and nowhere else.
+
+Substituting, the adjoint system is
+\begin{align}
+-\dot\lambda_S - \Div\big(D_S\Grad\lambda_S\big) &= \lambda_S\big[G_S - \beta_1 R - \beta_2 W\big] + \lambda_I\big[\beta_1 R + \beta_2 W\big], \label{eq:adjS}\\
+-\dot\lambda_I - \Div\big(D_I\Grad\lambda_I\big) &= \lambda_S\,G_I - \lambda_I\,\sigma + \lambda_R\,\sigma, \label{eq:adjI}\\
+-\dot\lambda_R - \Div\big(D_R\Grad\lambda_R\big) &= c_1 + \lambda_S\big[G_R - \beta_1 S\big] + \lambda_I\,\beta_1 S - \lambda_R\big(\alpha + v\big) + \lambda_W\,\rho, \label{eq:adjR}\\
+-\dot\lambda_W &= c_2 - \lambda_S\,\beta_2 S + \lambda_I\,\beta_2 S - \lambda_W\,\delta, \label{eq:adjW}
+\end{align}
+on $\Gamma\times(0,T)$, subject to the terminal conditions $\lambda_S(T)=\lambda_I(T)=\lambda_R(T)=\lambda_W(T)=0$ and the zero-flux boundary conditions $\big(D_X\Grad\lambda_X\big)\cdot\boldsymbol\nu=0$ on $\partial\Gamma$ for $X\in\{S,I,R\}$.
+
+Several features are worth drawing out.
+
+\begin{itemize}
+\item \textbf{It is linear.} Although the state system is nonlinear, \eqref{eq:adjS}--\eqref{eq:adjW} is linear in $\lambda$; the state $y$ and control $v$ enter only as (known, precomputed) coefficients. There is no Newton iteration in the backward solve.
+
+\item \textbf{It runs backward.} With $\lambda(T)=0$ and $-\dot\lambda$ on the left, information propagates from $t=T$ toward $t=0$. Substituting $\tau = T-t$ turns \eqref{eq:adjS}--\eqref{eq:adjW} into a forward-in-time linear reaction--diffusion system of exactly the same structural type as the state system, so the IMEX machinery of Section~\ref{sec:fem} applies verbatim.
+
+\item \textbf{$\lambda_W$ has no diffusion}, exactly mirroring the fact that $W$ has none. Equation~\eqref{eq:adjW} is a nodewise linear ODE, just as \eqref{eq:cW} is. The structural asymmetry of the model is inherited exactly by its adjoint.
+
+\item \textbf{The couplings are transposed.} In the state system, $S$ and $R$ drive $I$ through $\beta_1 SR$; in the adjoint, $\lambda_I$ drives $\lambda_S$ and $\lambda_R$ through the corresponding terms $\lambda_I(\beta_1 R + \beta_2 W)$ and $\lambda_I\beta_1 S$. Where the state propagates infection forward through the compartment chain $S\to I\to R\to W$, the adjoint propagates \emph{cost} backward along the same chain: $\lambda_W$ feeds $\lambda_R$ through $\lambda_W\rho$ in \eqref{eq:adjR}, $\lambda_R$ feeds $\lambda_I$ through $\lambda_R\sigma$ in \eqref{eq:adjI}, and so on.
+
+\item \textbf{The cost weights are sources.} The running cost enters only as the constant forcings $c_1$ in \eqref{eq:adjR} and $c_2$ in \eqref{eq:adjW}. These are the only terms driving the adjoint away from zero, so with $c_1=c_2=0$ we would obtain $\lambda\equiv 0$ and a zero gradient, as expected. Note that both sources now sit in the \emph{downstream} half of the chain: nothing forces $\lambda_S$ or $\lambda_I$ directly, and they become nonzero only by inheritance through the couplings.
+
+\item \textbf{Interpretation.} $\lambda_k(\mathbf{x},t)$ is the marginal cost, over the remaining horizon $[t,T]$, of one additional unit of compartment $k$ at $(\mathbf{x},t)$ --- a shadow price. In particular $\lambda_R$ measures the total future damage caused by one more shedding deer at $(\mathbf{x},t)$: its own accrued cost $c_1$, the infections it will go on to cause directly, and the environmental contamination it will deposit and that will then persist for a mean $1/\delta$ years. That $\lambda_R$ is exactly the multiplier appearing in the gradient below is the mathematical content of the intuition that one should cull hardest where and when a shedding animal is most costly.
+
+\item \textbf{Early removal is still valued, without being costed.} It is worth being explicit that costing $R$ and culling $R$ does not make the model indifferent to the upstream class. Equation~\eqref{eq:adjI} carries the term $+\lambda_R\sigma$, so $\lambda_I$ is driven by $\lambda_R$ through exactly the progression rate at which $I$ becomes $R$; since $\sigma$ is also the only exit from $I$, a slowly varying adjoint gives $\lambda_I \approx \lambda_R$. A sub-clinical animal is thus valued at the full shadow price of the shedding animal it is certain to become. Were a background mortality reinstated, this would become $\lambda_I \approx \lambda_R\,\sigma/(\sigma+\mu)$ --- the same price discounted by the probability of living to shed.
+
+\item \textbf{Terminal payoff.} If a terminal cost $\int_\Gamma \Phi(y(\cdot,T))\,d\Gamma$ is added to \eqref{eq:objective} --- for example $c_T\int_\Gamma W(T)$ to penalize the contaminated landscape left behind at the planning horizon, which for CWD is arguably the burden that most deserves a terminal penalty since it outlives the horizon by years --- then only the terminal condition changes, to $\lambda_k(\cdot,T) = \partial\Phi/\partial y_k$. Equations~\eqref{eq:adjS}--\eqref{eq:adjW} themselves are unaffected.
+
+\item \textbf{The water branch.} The implementation replaces $G$ by $-rS$ wherever $K(\mathbf{x})<0.01$ (Section~\ref{sec:monolithic}). The adjoint must inherit exactly the same branch: there $G_S = -r$ and $G_I=G_R=0$. Failing to differentiate the conditional consistently is a common and silent source of wrong gradients.
+\end{itemize}
+
+\subsection{Weak form of the adjoint system}
+
+For the finite element solve we need the weak form. Multiplying \eqref{eq:adjS}--\eqref{eq:adjR} by a test function $\psi\in V_h$, integrating over $\Gamma_h$, and applying the surface divergence theorem exactly as in Section~\ref{sec:weak} gives: find $\lambda_S,\lambda_I,\lambda_R \in V_h$ such that for all $\psi\in V_h$,
+\begin{align}
+-\int_{\Gamma_h}\dot\lambda_S\,\psi\,dA &= -\int_{\Gamma_h} D_S\Grad\lambda_S\cdot\Grad\psi\,dA + \int_{\Gamma_h}\Big[\lambda_S\big(G_S - \beta_1 R - \beta_2 W\big) + \lambda_I\big(\beta_1 R + \beta_2 W\big)\Big]\psi\,dA,\\
+-\int_{\Gamma_h}\dot\lambda_I\,\psi\,dA &= -\int_{\Gamma_h} D_I\Grad\lambda_I\cdot\Grad\psi\,dA + \int_{\Gamma_h}\Big[\lambda_S G_I - \lambda_I\sigma + \lambda_R\sigma\Big]\psi\,dA,\\
+-\int_{\Gamma_h}\dot\lambda_R\,\psi\,dA &= -\int_{\Gamma_h} D_R\Grad\lambda_R\cdot\Grad\psi\,dA + \int_{\Gamma_h}\Big[c_1 + \lambda_S\big(G_R-\beta_1 S\big) + \lambda_I\beta_1 S - \lambda_R(\alpha+v) + \lambda_W\rho\Big]\psi\,dA,
+\end{align}
+while $\lambda_W$, carrying no spatial operator, is again advanced nodewise:
+\begin{equation}
+-\dot\lambda_{W,i} = c_2 - \lambda_{S,i}\beta_2 S_i + \lambda_{I,i}\beta_2 S_i - \lambda_{W,i}\delta, \qquad i=1,\dots,N.
+\end{equation}
+Comparing with Section~\ref{sec:weak}, the bilinear (diffusion plus mass) parts are \emph{identical} to those of the state problem, term for term.
+
+% ======================================================================
+\section{Optimality Condition and the Reduced Gradient}
+\label{sec:optimality}
+% ======================================================================
+
+With $\lambda$ solving \eqref{eq:adjS}--\eqref{eq:adjW}, the bracket in \eqref{eq:collected} vanishes and we are left with
+\begin{equation}
+\boxed{\;
+\hat J'(v)\,[\delta v] \;=\; \int_0^T\!\!\int_\Gamma \Big(2c_3\,v + c_4 - \lambda_R\,R\Big)\,\delta v \;d\Gamma\,dt,
+\qquad\text{i.e.}\qquad
+\nabla \hat J(v) \;=\; 2c_3\,v + c_4 - \lambda_R\,R \;}
+\label{eq:gradient}
+\end{equation}
+where the gradient is understood as the Riesz representative in $L^2(\Gamma\times(0,T))$. This is the payoff of the whole construction: \emph{one} state solve plus \emph{one} adjoint solve yield the gradient with respect to every control degree of freedom simultaneously.
+
+Equation~\eqref{eq:gradient} has a clean reading. The optimizer increases culling wherever the product $\lambda_R R$ --- the density of shedding animals times the marginal future cost of a shedding animal --- exceeds the marginal cost $2c_3 v + c_4$ of effort at the level already being spent there. The product form matters: effort is worthless where there is nothing to cull ($R \to 0$) \emph{and} where culling buys nothing ($\lambda_R \to 0$, as it does near $t=T$, when there is no remaining horizon over which the prevented contamination could do damage). The two cost weights enter that comparison differently. The quadratic term contributes $2c_3v$, which vanishes as the effort does, so it never by itself argues for spending nothing; the linear term contributes the constant $c_4$, which does not, and so sets a floor on how valuable a location must be before any effort at all is worth spending there.
+
+\subsection{First-order necessary condition}
+
+Since $\Vad$ is convex, a local minimizer $v^*$ of \eqref{eq:ocp} satisfies the variational inequality
+\begin{equation}
+\int_0^T\!\!\int_\Gamma \Big(2c_3 v^* + c_4 - \lambda_R R\Big)\big(w - v^*\big)\,d\Gamma\,dt \;\ge\; 0
+\qquad \text{for all } w\in\Vad,
+\label{eq:vi}
+\end{equation}
+where $(S,I,R,W)$ and $\lambda$ are the state and adjoint associated with $v^*$. Because the constraint acts pointwise, \eqref{eq:vi} is equivalent to the pointwise characterization
+\begin{equation}
+v^*(\mathbf{x},t) \;=\; \min\left\{\,v_{\max},\ \max\left\{\,0,\ \frac{\lambda_R(\mathbf{x},t)\,R(\mathbf{x},t) - c_4}{2c_3}\,\right\}\right\}
+\;=\; P_{\Vad}\!\left(\frac{\lambda_R R - c_4}{2c_3}\right),
+\label{eq:pointwise-optimality}
+\end{equation}
+$P_{\Vad}$ denoting pointwise projection onto $[0,v_{\max}]$. This is where the two control weights show their different characters. The lower bound is active --- the optimum is \emph{exactly} zero, not merely small --- on the whole set where $\lambda_R R \le c_4$, so $c_4$ acts as a threshold on the local benefit and produces genuinely sparse strategies. Above that threshold the effort ramps linearly in $\lambda_R R$ at slope $1/(2c_3)$, so $c_3$ controls how fast effort is allowed to grow once it is worth spending at all. At $c_4=0$ the threshold collapses to the single point $\lambda_R R = 0$ and the familiar $v^* = P_{\Vad}(\lambda_R R/2c_3)$ is recovered. Equivalently, $v^*$ is a fixed point of $v\mapsto P_{\Vad}\big((\lambda_R(v)R(v)-c_4)/2c_3\big)$, and equivalently again
+\begin{equation}
+v^* = P_{\Vad}\big(v^* - \alpha\,\nabla\hat J(v^*)\big) \quad\text{for any } \alpha>0,
+\label{eq:stationarity}
+\end{equation}
+which is the stationarity measure the code monitors (with $\alpha=1$) for its convergence test.
+
+Formula~\eqref{eq:pointwise-optimality} suggests the classical \emph{forward--backward sweep} of \citet{Lenhart2007}: solve the state forward, the adjoint backward, set $v$ to the right-hand side of \eqref{eq:pointwise-optimality}, repeat. That iteration is simple but has no descent guarantee and is known to diverge when the coupling is strong --- which for this model it is, since $\lambda_R$ depends on $v$ through the whole $-\lambda_R(\alpha+v)$ term. The method of the next section keeps the same forward--backward structure but replaces the naive update with a safeguarded descent step, at the cost of a few extra forward solves per iteration.
+
+% ======================================================================
+\section{Numerical Solution of the Control Problem}
+\label{sec:control-numerics}
+% ======================================================================
+
+\subsection{The discrete adjoint of the IMEX scheme}
+\label{sec:discrete-adjoint}
+
+There are two ways to obtain a discrete gradient: discretize the continuous adjoint \eqref{eq:adjS}--\eqref{eq:adjW} (\emph{optimize-then-discretize}), or differentiate the discrete state system exactly (\emph{discretize-then-optimize}). We take the latter. The two agree to the order of the discretization, but only the discrete adjoint yields the \emph{exact} gradient of the quantity the computer actually minimizes. That exactness matters in practice: an approximate gradient is not a descent direction near a stationary point, and the Armijo line search of Section~\ref{sec:algorithm} then stalls for reasons that look like a bug in the model rather than an inconsistency in the derivative.
+
+\paragraph{Discrete state and objective.} Let $\mathbf{y}^n\in\mathbb{R}^{4N}$ be the nodal coefficient vector of all four compartments at $t^n=n\Delta t$, and $\mathbf{v}^n\in\mathbb{R}^{N}$ the nodal control on the slab $[t^n,t^{n+1})$, $n=0,\dots,N_t-1$, with $N_t = \lfloor T/\Delta t\rfloor$. The IMEX step \eqref{eq:imex}, assembled monolithically as in Section~\ref{sec:monolithic}, reads
+\begin{equation}
+B\,\mathbf{y}^{n+1} \;=\; \mathbf{L}\big(\mathbf{y}^n,\mathbf{v}^n\big), \qquad n=0,\dots,N_t-1,
+\label{eq:discrete-state}
+\end{equation}
+where $B$ is the matrix assembled from the bilinear form \eqref{eq:bilinear} and $\mathbf{L}$ is the (nonlinear) load vector assembled from the linear form of Section~\ref{sec:monolithic} with the control term $-\Delta t\,v^n R^n$ added to the $R$-row. The discrete objective, using a right-endpoint rule for the state terms and a left-endpoint rule for the control terms, is
+\begin{equation}
+J_h(\mathbf{v}) \;=\; \Delta t\sum_{n=1}^{N_t}\int_{\Gamma_h}\big(c_1 R_h^n + c_2 W_h^n\big)\,dA
+\;+\; \Delta t\sum_{n=0}^{N_t-1}\int_{\Gamma_h} \big(c_3\,(v_h^n)^2 + c_4\,v_h^n\big)\,dA .
+\label{eq:discrete-objective}
+\end{equation}
+
+\paragraph{Discrete Lagrangian.} Introduce one multiplier vector $\boldsymbol\lambda^{n+1}\in\mathbb{R}^{4N}$ per time step and set
+\begin{equation}
+\Lag_h \;=\; J_h(\mathbf{v}) \;-\; \sum_{n=0}^{N_t-1}\big(\boldsymbol\lambda^{n+1}\big)^{\mathsf T}\Big(B\,\mathbf{y}^{n+1} - \mathbf{L}(\mathbf{y}^n,\mathbf{v}^n)\Big).
+\end{equation}
+Let $\mathbf{g}\in\mathbb{R}^{4N}$ be the vector assembled from $\int_{\Gamma_h}\big(c_1\psi_R + c_2\psi_W\big)\,dA$, so that $\partial J_h/\partial \mathbf{y}^n = \Delta t\,\mathbf{g}$ for $1\le n\le N_t$. Stationarity of $\Lag_h$ with respect to $\mathbf{y}^{N_t}$ gives
+\begin{equation}
+B^{\mathsf T}\boldsymbol\lambda^{N_t} = \Delta t\,\mathbf{g},
+\label{eq:discrete-terminal}
+\end{equation}
+and with respect to $\mathbf{y}^{n}$ for $1\le n\le N_t-1$ gives
+\begin{equation}
+B^{\mathsf T}\boldsymbol\lambda^{n} \;=\; \left[\frac{\partial \mathbf{L}}{\partial\mathbf{y}}\big(\mathbf{y}^n,\mathbf{v}^n\big)\right]^{\mathsf T}\boldsymbol\lambda^{n+1} \;+\; \Delta t\,\mathbf{g}.
+\label{eq:discrete-adjoint}
+\end{equation}
+No equation is needed for $\mathbf{y}^0$, which is fixed by the initial condition. Because that condition is control-independent (Section~\ref{sec:spinup}), $\partial\mathbf{y}^0/\partial\mathbf{v}=0$ and no corresponding term enters the reduced gradient.
+
+\paragraph{$B$ is symmetric.} The mass blocks of \eqref{eq:bilinear} are symmetric, and the stiffness blocks are symmetric because $D=D^{\mathsf T}$ pointwise (Section~\ref{sec:impl-diffusion}). Hence $B^{\mathsf T}=B$, and \eqref{eq:discrete-terminal}--\eqref{eq:discrete-adjoint} may be solved with the \emph{same} factorizations already computed for the forward sweep. The backward solve therefore costs one vector assembly and one back-substitution per step, exactly like the forward solve --- no second matrix is assembled and no second factorization is performed anywhere in the code. The block splitting \eqref{eq:blockdiag} is compatible with this: it is an exact rearrangement of the same $B$, each block is individually symmetric, and the forward and backward sweeps use the identical set of cached block factorizations.
+
+\paragraph{The transposed Jacobian.} Writing $\mathbf{L}$ row-wise in terms of the test functions $(\psi_S,\psi_I,\psi_R,\psi_W)$ and differentiating the integrand of Section~\ref{sec:monolithic} with respect to each state, the vector $[\partial\mathbf{L}/\partial\mathbf{y}]^{\mathsf T}\boldsymbol\lambda^{n+1}$ is assembled from the form (writing $\lambda_k$ for the components of $\boldsymbol\lambda^{n+1}$ and dropping the superscript $n$ on the states)
+\begin{align}
+\text{row }S:\quad & \lambda_S\psi_S + \Delta t\,\psi_S\Big[\lambda_S\big(G_S - \beta_1 R - \beta_2 W\big) + \lambda_I\big(\beta_1 R + \beta_2 W\big)\Big],\\
+\text{row }I:\quad & \lambda_I\psi_I + \Delta t\,\psi_I\Big[\lambda_S G_I - \lambda_I\sigma + \lambda_R\sigma\Big],\\
+\text{row }R:\quad & \lambda_R\psi_R + \Delta t\,\psi_R\Big[\lambda_S\big(G_R - \beta_1 S\big) + \lambda_I\beta_1 S - \lambda_R\big(\alpha + v\big) + \lambda_W\rho\Big],\\
+\text{row }W:\quad & \lambda_W\psi_W + \Delta t\,\psi_W\Big[-\lambda_S\beta_2 S + \lambda_I\beta_2 S - \lambda_W\delta\Big],
+\end{align}
+integrated over $\Gamma_h$, with $G_S$, $G_I=G_R$ as in \eqref{eq:Gderivs} and inheriting the $K<0.01$ branch. The bracketed terms are exactly the right-hand sides of the continuous adjoint equations \eqref{eq:adjS}--\eqref{eq:adjW} minus their $c_1,c_2$ forcings (which \eqref{eq:discrete-adjoint} supplies separately through $\Delta t\,\mathbf{g}$), and the leading $\lambda_k\psi_k$ terms are the discrete counterpart of $-\dot\lambda_k$. The discrete adjoint is thus recognizably a discretization of the continuous adjoint --- but it is derived, not guessed, and it is exact.
+
+\paragraph{Discrete gradient.} Stationarity of $\Lag_h$ with respect to $\mathbf{v}^n$ gives
+\begin{equation}
+\frac{\partial J_h}{\partial \mathbf{v}^n} \;=\; \Delta t\Big[\,2c_3\,M\,\mathbf{v}^n \;+\; c_4\,M\mathbf{1} \;-\; \mathbf{m}\big(\mathbf{y}^n,\boldsymbol\lambda^{n+1}\big)\Big],
+\qquad
+\mathbf{m}_j = \int_{\Gamma_h} R_h^n\,\lambda_{R,h}^{n+1}\,\varphi_j\,dA ,
+\label{eq:discrete-gradient}
+\end{equation}
+with $\mathbf{1}$ the vector of ones, so that $(M\mathbf{1})_j = \int_{\Gamma_h}\varphi_j\,dA$ is the constant $c_4$ tested against each basis function. Dividing by the lumped mass matrix $M_L$ converts this from a functional (an element of the dual) into the $L^2$ Riesz representative used by the line search,
+\begin{equation}
+g^n \;:=\; \frac{1}{\Delta t}M_L^{-1}\frac{\partial J_h}{\partial\mathbf{v}^n}
+\;\approx\; 2c_3\,v^n + c_4 - R^n\,\lambda_R^{n+1},
+\end{equation}
+which is the discrete counterpart of \eqref{eq:gradient}. The corresponding discrete inner product on space--time control fields is
+\begin{equation}
+\big\langle a, b\big\rangle \;=\; \Delta t\sum_{n=0}^{N_t-1}\sum_{i=1}^{N} \big(M_L\big)_{ii}\,a^n_i\,b^n_i,
+\qquad \big(M_L\big)_{ii} = \int_{\Gamma_h}\varphi_i\,dA,
+\label{eq:inner-product}
+\end{equation}
+which is a quadrature for $\int_0^T\int_\Gamma ab$ and is the pairing in which \eqref{eq:discrete-gradient} is exactly the derivative of \eqref{eq:discrete-objective}.
+
+\paragraph{Matching quadrature rules, term by term.} For \eqref{eq:discrete-adjoint} to be the exact transpose, every term of the adjoint load vector must be assembled with the \emph{same} quadrature rule as the term of $\mathbf{L}$ it differentiates. Quadrature is a linear functional, so differentiating a quadrature sum and quadrature-summing the analytic derivative agree exactly --- but only when the rule is the same. If each form is allowed to pick its own automatically estimated degree, the assembled adjoint is only approximately transposed, and the Taylor test of Section~\ref{sec:verification} degrades from second order to first.
+
+Two rules appear, and they are paired consistently. The mass terms $\mathbf{y}^n\!\cdot\!\Psi$ of $\mathbf{L}$ use the vertex rule that produces $M_L$ (Section~\ref{sec:fem}), and their transpose $\boldsymbol\lambda^{n+1}\!\cdot\!\Psi$ uses the same vertex rule. All reaction, cost, and gradient terms use one explicitly pinned Gauss degree, shared across the state load vector, the adjoint load vector, the running cost, and the gradient form. Note that the quadrature of the bilinear form \eqref{eq:bilinear} is unconstrained by this requirement: $B$ appears identically on the left of the forward and the backward step, so it never enters the transpose identity --- only the choice of $M_L$ over $M$ inside it matters, and that is a positivity question rather than an adjoint-consistency one.
+
+\subsection{Projected gradient descent with an Armijo line search}
+\label{sec:algorithm}
+
+Two optimizers consume the reduced gradient of Section~\ref{sec:discrete-adjoint}, selected by \texttt{optimal\_control.optimizer}. This subsection describes the projected-gradient method, which is the simpler of the two and the reference implementation; Section~\ref{sec:lbfgs} describes the quasi-Newton method that is used by default. Both are fed the identical gradient, so the verification of Section~\ref{sec:verification} applies to either.
+
+The bound constraints in $\Vad$ are handled by projection. Writing $P$ for the pointwise projection onto $[0,v_{\max}]$ and $g^{(k)} = \nabla\hat J(v^{(k)})$, the update is
+\begin{equation}
+v^{(k+1)} \;=\; P\big(v^{(k)} - \alpha_k\,g^{(k)}\big),
+\end{equation}
+with the step $\alpha_k$ chosen by backtracking. The sufficient-decrease (Armijo) test is imposed in the form appropriate to a projected method: with $d(\alpha) := P(v^{(k)}-\alpha g^{(k)}) - v^{(k)}$, accept the first $\alpha$ in the sequence $\alpha,\tau\alpha,\tau^2\alpha,\dots$ for which
+\begin{equation}
+\boxed{\;\hat J\big(v^{(k)} + d(\alpha)\big) \;\le\; \hat J\big(v^{(k)}\big) \;+\; \eta\,\big\langle g^{(k)},\,d(\alpha)\big\rangle\;}
+\label{eq:armijo}
+\end{equation}
+with $\eta\in(0,1)$ (typically $10^{-4}$) and $\tau\in(0,1)$ (typically $\tfrac12$). Two facts make this the right test. First, because $P$ projects onto a convex set, $\langle g, P(v-\alpha g)-v\rangle \le 0$ always, with equality if and only if $v$ satisfies the stationarity condition \eqref{eq:stationarity}; the right-hand side of \eqref{eq:armijo} is therefore a genuine decrease target whenever $v^{(k)}$ is not already stationary. Second, when no bound is active the projection is the identity, $d(\alpha) = -\alpha g^{(k)}$, and \eqref{eq:armijo} collapses to the classical Armijo condition $\hat J(v-\alpha g)\le \hat J(v) - \eta\alpha\lVert g\rVert^2$. Standard theory \citep{Nocedal2006} then gives that the backtracking terminates in finitely many steps and that every accumulation point of $\{v^{(k)}\}$ is stationary.
+
+Each evaluation of $\hat J$ in \eqref{eq:armijo} costs one forward solve. The complete method is Algorithm~\ref{alg:sweep}.
+
+\begin{figure}[h]
+\centering
+\fbox{\begin{minipage}{0.92\textwidth}
+\textbf{Algorithm 1: Forward--backward sweep with projected Armijo descent.}
+\smallskip
+\hrule
+\smallskip
+Given $v^{(0)}\in\Vad$, initial step $\alpha_0>0$, parameters $\eta\in(0,1)$, $\tau\in(0,1)$, growth factor $\gamma\ge1$, tolerances $\epsilon_g,\epsilon_J$.
+\begin{enumerate}
+\item \textbf{Initial forward solve.} Advance \eqref{eq:discrete-state} from $\mathbf{y}^0$ with $v^{(0)}$, storing the entire trajectory $\{\mathbf{y}^n\}_{n=0}^{N_t}$, and evaluate $\hat J(v^{(0)})$ via \eqref{eq:discrete-objective}.
+\item \textbf{For} $k=0,1,2,\dots$ until convergence:
+\begin{enumerate}
+\item \textbf{Backward solve.} Set $\boldsymbol\lambda^{N_t}$ from \eqref{eq:discrete-terminal}. For $n = N_t-1,\dots,1$, evaluate the gradient slab $g^{(k),n} = 2c_3 v^{(k),n} + c_4 - R^n\lambda_R^{n+1}$ and then solve \eqref{eq:discrete-adjoint} for $\boldsymbol\lambda^{n}$, reusing the LU factors of $B$. Evaluate the last slab $g^{(k),0}$ from $\boldsymbol\lambda^{1}$.
+\item \textbf{Stationarity test.} If $\lVert P(v^{(k)} - g^{(k)}) - v^{(k)}\rVert \le \epsilon_g$, \textbf{stop}.
+\item \textbf{Line search.} Set $\alpha \leftarrow \gamma\alpha_k$. Repeat: form $v_{\text{trial}} = P(v^{(k)} - \alpha g^{(k)})$, run a forward solve to get $\hat J(v_{\text{trial}})$, and accept if \eqref{eq:armijo} holds; otherwise set $\alpha\leftarrow\tau\alpha$ and repeat. If $\alpha$ underflows, \textbf{stop} (line search failure).
+\item \textbf{Update.} $v^{(k+1)} \leftarrow v_{\text{trial}}$, $\alpha_{k+1}\leftarrow\alpha$. If the relative decrease in $\hat J$ is below $\epsilon_J$, \textbf{stop}.
+\end{enumerate}
+\end{enumerate}
+\end{minipage}}
+\caption{The forward--backward sweep. Each outer iteration costs one backward solve plus $1+(\text{number of backtracks})$ forward solves, all of them reusing the block factorizations of $B$ from \eqref{eq:blockdiag}, computed once at start-up.}
+\label{alg:sweep}
+\end{figure}
+
+\paragraph{Cost and storage.} An outer iteration costs one backward sweep and, typically, one to three forward sweeps. The dominant memory cost is the stored forward trajectory: the backward sweep evaluates the Jacobian at $\mathbf{y}^n$, so the entire state history must be available. That is $4N(N_t+1)$ doubles --- for a $10^5$-node mesh and $500$ steps, roughly $1.6\,$GB. Where that is prohibitive the implementation can memory-map the trajectory to disk; the classical alternative is checkpointing, storing every $m$-th state and recomputing the intermediate ones during the backward pass, which trades a factor $m$ in memory for roughly one extra forward solve.
+
+\paragraph{Choosing the first step.} The magnitude of $\nabla\hat J$ is unit-dependent and not known in advance, so a fixed $\alpha_0$ is guesswork. The implementation instead sizes the first trial step so that $-\alpha_0 g^{(0)}$ moves the most gradient-sensitive node across the whole admissible range, $\alpha_0 = (v_{\max}-v_{\min})/\lVert g^{(0)}\rVert_\infty$; thereafter $\alpha$ is grown by $\gamma$ at the start of each line search and shrunk by $\tau$ within it, so the method adapts on its own.
+
+\subsection{The default optimizer: L-BFGS-B}
+\label{sec:lbfgs}
+
+Projected gradient descent converges \emph{linearly}, at a rate governed by the conditioning of the reduced Hessian $\nabla^2\hat J$. That Hessian is $2c_3\mathcal{I}$ plus a compact operator arising through the state equation, so its spectrum is a cluster near $2c_3$ together with a tail of larger eigenvalues, and the resulting rate is unremarkable: the method makes rapid initial progress and then crawls. Since each iteration costs a full forward--backward pair over $N_t$ steps, the iteration count is the whole story.
+
+The bound constraint in \eqref{eq:Vadblock} is a \emph{simple box}, which is precisely the structure the limited-memory quasi-Newton method L-BFGS-B is designed for. It maintains an implicit approximation to $\nabla^2\hat J$ built from the last $m$ pairs $(s^{(k)},z^{(k)}) = (v^{(k+1)}-v^{(k)},\,g^{(k+1)}-g^{(k)})$, identifies the active bounds by a gradient-projection search, and takes a subspace quasi-Newton step on the remaining free variables. On the inactive set the convergence is superlinear rather than linear, while the cost per iteration is unchanged --- one forward solve and one backward sweep --- so the gain is entirely in the number of outer iterations.
+
+The implementation delegates to SciPy's L-BFGS-B, passing the reduced objective and the reduced gradient of Section~\ref{sec:discrete-adjoint} as a single value-and-gradient callable and the box $[0,v_{\max}]$ as bounds. Nothing in the discretization, the adjoint, or the gradient changes; only the rule for producing $v^{(k+1)}$ from the history does. Three practical points are worth recording.
+
+\emph{Memory.} L-BFGS-B stores $2m+5$ vectors the size of the control. This is exactly why the blocking \eqref{eq:Vadblock} is not optional: with an unrestricted control on the reference mesh those vectors total some $39$~GiB at the default $m=10$, against roughly $0.8$~GiB under annual blocking. The parameter $m$ (\texttt{lbfgs\_memory}) trades directly against the block length, and should be reduced before the blocks are shortened.
+
+\emph{Termination.} SciPy's \texttt{ftol} is the same relative-decrease test the projected-gradient loop applies, so the configured tolerance carries over unchanged. Its \texttt{gtol}, however, is the max-norm of the projected gradient, whereas the stationarity measure reported in Algorithm~\ref{alg:sweep} and in the run history is the mass-weighted $L^2$ quantity $\lVert P(v-g)-v\rVert$; the two differ in scale and should not be compared directly.
+
+\emph{The returned iterate.} L-BFGS-B may return a point other than the last one evaluated, so the stored trajectory need not correspond to it. The driver therefore performs one final forward solve at the returned control before writing the state series or the adjoint fields, rather than reusing whatever trajectory happened to be in memory.
+
+Neither method escapes the caveat noted after \eqref{eq:ocp}: $\hat J$ is not convex, so both locate a stationary point rather than a global minimizer, and re-running from several initial guesses remains good practice.
+
+\subsection{Verification: the Taylor test}
+\label{sec:verification}
+
+Adjoint implementations fail silently: a gradient that is wrong by a sign, a missing Jacobian term, or an undifferentiated conditional still produces plausible-looking output, merely converging slowly or to the wrong control. The standard check is a Taylor test. For a fixed direction $d$ and $\varepsilon\to0$,
+\begin{equation}
+R_0(\varepsilon) := \big|\hat J(v+\varepsilon d) - \hat J(v)\big| = O(\varepsilon),
+\qquad
+R_1(\varepsilon) := \big|\hat J(v+\varepsilon d) - \hat J(v) - \varepsilon\,\langle \nabla\hat J(v), d\rangle\big| = O(\varepsilon^2).
+\end{equation}
+The second-order decay of $R_1$ holds only if the gradient is correct; any error in $\nabla\hat J$ leaves a term linear in $\varepsilon$ and degrades $R_1$ to first order. The test must be run at a control strictly inside the bounds, so that no projection is active and $\hat J$ is genuinely differentiable along $d$, and only over the range of $\varepsilon$ where round-off has not yet taken over. The implementation provides this check as a command-line mode (Section~\ref{sec:control-implementation}).
+
+% ======================================================================
+\section{Implementation of the Control Solver}
+\label{sec:control-implementation}
+% ======================================================================
+
+The control solver lives beside the state solver and shares its mesh-generation workflow, parameter file, and land-cover mappings. Table~\ref{tab:control-notation} extends Table~\ref{tab:code-notation} with the control-specific quantities.
+
+\begin{table}[h]
+\centering
+\caption{Correspondence between the symbols of Sections~\ref{sec:control}--\ref{sec:control-numerics} and the implementation.}
+\label{tab:control-notation}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Math & Code identifier & Role \\
+\midrule
+$v(\mathbf{x},t)$ & \texttt{control}, \texttt{v\_func} & culling control (array of slabs; CG1 field for one slab) \\
+$\lambda_S,\lambda_I,\lambda_R,\lambda_W$ & \texttt{Lam} (mixed \texttt{Function}) & adjoint state $\boldsymbol\lambda^{n+1}$ \\
+$c_1$ & \texttt{cost\_shedding} & weight on the shedding burden $R$ \\
+$c_2$ & \texttt{cost\_environment} & weight on the environmental prion load \\
+$c_3$ & \texttt{cost\_control} & quadratic weight on the culling effort \\
+$c_4$ & \texttt{cost\_control\_l1} & linear control weight; default $0$ \\
+$v_{\min}$ & \texttt{control\_minimum} & lower bound of $\Vad$ \\
+$v_{\max}$ & \texttt{control\_maximum} & upper bound of $\Vad$ \\
+$B$ & \texttt{A} & implicit operator \eqref{eq:bilinear}, factorized once \\
+$\mathbf{L}(\mathbf{y}^n,\mathbf{v}^n)$ & \texttt{state\_rhs\_form} & forward load vector \eqref{eq:discrete-state} \\
+$[\partial\mathbf{L}/\partial\mathbf{y}]^{\mathsf T}\boldsymbol\lambda + \Delta t\mathbf{g}$ & \texttt{adjoint\_rhs\_form} & adjoint load vector \eqref{eq:discrete-adjoint} \\
+$\Delta t\,\mathbf{g}$ & \texttt{terminal\_rhs\_form} & terminal adjoint \eqref{eq:discrete-terminal} \\
+$\partial J_h/\partial\mathbf{v}^n$ & \texttt{gradient\_form} & reduced gradient \eqref{eq:discrete-gradient} \\
+$M_L$ & \texttt{lumped\_mass} & lumped mass, Riesz map and inner product \eqref{eq:inner-product} \\
+$\eta,\ \tau,\ \gamma$ & \texttt{armijo\_sufficient\_decrease}, & line search parameters \\
+ & \texttt{armijo\_backtrack\_factor}, & \\
+ & \texttt{armijo\_step\_growth} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Code organization}
+
+Two modules implement Sections~\ref{sec:control}--\ref{sec:control-numerics}, alongside one shared with the state solver:
+
+\begin{itemize}
+\item \texttt{cwd\_control\_problem.py} defines the class \texttt{CWDControlProblem}, which reads the mesh bundle, builds the mixed space and the land-cover fields, assembles the diffusion tensor \eqref{eq:Dtens} and the operator $B$, factorizes $B$ once, and compiles all of the variational forms in Table~\ref{tab:control-notation}. Its two workhorse methods are \texttt{forward(control, trajectory)}, which advances \eqref{eq:discrete-state} while accumulating \eqref{eq:discrete-objective} and recording the state history, and \texttt{backward(control, trajectory)}, which performs the sweep \eqref{eq:discrete-terminal}--\eqref{eq:discrete-adjoint} and returns the gradient array. Placing both in one class is what guarantees that the forward and adjoint forms see the same mesh, the same coefficients, and --- critically --- the same quadrature rule.
+
+\item \texttt{CWD\_optimal\_control.py} is the driver: it parses the mesh bundle flags (identically to \texttt{CWD\_solver.py}), runs Algorithm~\ref{alg:sweep}, reports the cost history, and writes the optimal state, the optimal control, and optionally the adjoint fields as XDMF/HDF5 time series for ParaView. It also implements the Taylor test of Section~\ref{sec:verification} under \texttt{-{}-gradient-check}.
+
+\item \texttt{utilities/susceptible\_spinup.py} implements the disease-free relaxation \eqref{eq:spinup-step}--\eqref{eq:spinup-stop} of Section~\ref{sec:spinup} together with its on-disk cache and the signature check that invalidates it. It is called by \texttt{CWDControlProblem} and by \texttt{CWD\_solver.py} alike, so both drivers start from the identical susceptible field; \texttt{-{}-recompute-equilibrium} forces the relaxation to be redone and \texttt{-{}-susceptible-equilibrium} points at a cache elsewhere than the mesh folder.
+\end{itemize}
+
+The control is represented as a NumPy array of shape $(N_b, N)$ --- one CG1 nodal field per control block of \eqref{eq:Vadblock}, piecewise constant in time --- and is saved as \texttt{optimal\_control.npy}, from which a subsequent run can be warm-started with \texttt{-{}-initial-control}. The per-iteration cost, gradient norm, step size, and backtrack count are written to \texttt{optimization\_history.json}.
+
+\subsection{Reuse of the state solver's machinery}
+
+Everything expensive is shared. The mesh, the land-cover arrays, the carrying capacity, the anisotropic diffusion tensor, and the operator $B$ are built exactly once at start-up and reused by every forward solve, every backward solve, and every line-search trial across every outer iteration. The disease-free field $S_\infty$ is shared more widely still: being independent of $v$, it is computed once per mesh bundle and cached on disk (Section~\ref{sec:spinup}), so it is paid for by neither the controlled nor the uncontrolled driver after the first run. Because $B$ is symmetric (Section~\ref{sec:discrete-adjoint}), the block factorizations of \eqref{eq:blockdiag} --- two of them, at the adopted mobilities --- serve all of them. The uncontrolled solver \texttt{CWD\_solver.py} is retained alongside the control driver --- and, since both now take their susceptible initial condition from the same cached $S_\infty$, the two start from identical data --- so that the controlled and uncontrolled trajectories can be compared directly; equivalently, the value of $\hat J$ reported at iteration $0$ of a run started from $v\equiv0$ is precisely the do-nothing baseline against which the optimized strategy should be judged.
+
+\section{Discussion and Future Work}
+
+The model presented here extends the classical directly-transmitted wildlife disease framework to chronic wasting disease by explicitly including an environmental prion reservoir $W$, coupled to realistic terrain geometry and land cover heterogeneity. The surface FEM discretization of Section~\ref{sec:fem} exploits the fact that $W$ carries no spatial operator, reducing its update to an independent, exactly-integrable nodal ODE, while $S$, $I$, and $R$ are advanced with an implicit-diffusion, explicit-reaction IMEX scheme. Sections~\ref{sec:control}--\ref{sec:control-implementation} then place a management problem on top of the model, deriving the adjoint system that characterizes an optimal culling strategy and solving it with a forward--backward sweep whose gradient feeds a projected quasi-Newton method.
+
+Future work includes: reconciling the transmission coefficients against the fitted estimates of \citet{Wasserberg2009} and \citet{Miller2006}, which would replace the $R_0$-targeting argument of Section~\ref{sec:params-r0} with a direct calibration; calibrating the land-cover coefficients of Table~\ref{tab:landcover-values} and the carrying capacity $K_0$ against regional surveillance and density data, which are the largest remaining unsupported inputs (Table~\ref{tab:paramvalues}); calibrating the cost weights $c_1,\dots,c_4$ against the actual budget and valuation of a management program, $c_4$ in particular being the one with a direct reading as a per-deer removal cost; exploring spatially varying environmental persistence $\delta(\mathbf{x})$ (e.g.\ soil-type dependence); and extending the control formulation itself. Natural extensions of the latter include: splitting $R$ into pre-clinical and clinical shedding classes, which is what a sight-based cull would require --- as noted in Section~\ref{sec:control}, a control acting on all of $R$ tacitly assumes test-and-cull; additional controls, such as carcass removal (acting as $-v_2 W$ in \eqref{eq:cW}) or non-selective harvest acting on $S$, $I$, and $R$ together; realistic constraints on the control beyond simple bounds, such as a total-budget constraint $\int_0^T\int_\Gamma v \le \mathcal{B}$ or restriction of $v$ to a union of accessible management units; and a terminal payoff penalizing the burden left at $t=T$, which as noted in Section~\ref{sec:adjoint-system} changes only the terminal condition on $\lambda$. Two items that appeared on this list in an earlier draft have since been implemented and are described above rather than deferred: the quasi-Newton optimizer (Section~\ref{sec:lbfgs}), which is now the default, and the sparsity-inducing linear control cost $c_4 v$, now carried throughout Sections~\ref{sec:control}--\ref{sec:control-numerics}.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+\bibitem[Almberg et al.(2011)]{Almberg2011}
+E.~S. Almberg, P.~C. Cross, C.~J. Johnson, D.~M. Heisey, and B.~J. Richards.
+\newblock Modeling routes of chronic wasting disease transmission: environmental prion persistence promotes deer population decline and extinction.
+\newblock \textit{PLoS ONE}, 6(5):e19896, 2011.
+\newblock \textit{[Source of the host stage durations, the weekly prion survival range, the fecundity used to derive $r$, and the weekly time step. Parameter values quoted in Section~\ref{sec:params} were read from the article's parameter table.]}
+
+\bibitem[Miller et al.(2004)]{Miller2004}
+M.~W. Miller, E.~S. Williams, N.~T. Hobbs, and L.~L. Wolfe.
+\newblock Environmental sources of prion transmission in mule deer.
+\newblock \textit{Emerging Infectious Diseases}, 10(6):1003--1006, 2004.
+\newblock \textit{[Experimental demonstration that paddocks remained infectious to na\"ive deer at least two years after removal of infected animals; corroborates the adopted $\delta = 0.5\,\mathrm{yr}^{-1}$.]}
+
+\bibitem[Wasserberg et al.(2009)]{Wasserberg2009}
+G.~Wasserberg, E.~E. Osnas, R.~E. Rolley, and M.~D. Samuel.
+\newblock Host culling as an adaptive management tool for chronic wasting disease in white-tailed deer: a modelling study.
+\newblock \textit{Journal of Applied Ecology}, 46(2):457--466, 2009.
+
+\bibitem[Miller et al.(2006)]{Miller2006}
+M.~W. Miller, N.~T. Hobbs, and S.~J. Tavener.
+\newblock Dynamics of prion disease transmission in mule deer.
+\newblock \textit{Ecological Applications}, 16(6):2208--2214, 2006.
+
+\bibitem[Lenhart and Workman(2007)]{Lenhart2007}
+S.~Lenhart and J.~T. Workman.
+\newblock \textit{Optimal Control Applied to Biological Models}.
+\newblock Chapman and Hall/CRC, 2007.
+
+\bibitem[Hinze et al.(2009)]{Hinze2009}
+M.~Hinze, R.~Pinnau, M.~Ulbrich, and S.~Ulbrich.
+\newblock \textit{Optimization with PDE Constraints}.
+\newblock Springer, 2009.
+
+\bibitem[Nocedal and Wright(2006)]{Nocedal2006}
+J.~Nocedal and S.~J. Wright.
+\newblock \textit{Numerical Optimization}.
+\newblock Springer, 2nd edition, 2006.
+\end{thebibliography}
+
+\end{document}

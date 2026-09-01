@@ -1,0 +1,38 @@
+# Solver and optimization outputs. Every run writes a fresh XDMF/HDF5 series;
+# none of it belongs in the repository.
+solver_outputs/
+control_outputs/
+baseline_outputs/
+*.xdmf
+*.h5
+optimal_control.npy
+optimization_history.json
+forward_summary.json
+
+# Mesh-generation products. Regenerate them with
+# generate_mesh_and_attributes.py rather than committing them; see
+# README_mesh_generation.md.
+*.msh
+*.mesh
+*.vtk
+land_cover_classes.npy
+land_cover_diffusivity.npy
+land_cover_reprojected.tif
+land_cover_aligned.tif
+coord_offsets.npy
+effective_parameters.json
+susceptible_equilibrium.npy
+susceptible_equilibrium.json
+
+# Source rasters: DEM and NLCD downloads are large and are not redistributed.
+*.tif
+*.tiff
+*.tif.aux.xml
+
+__pycache__/
+*.py[cod]
+
+# The one bundle that IS kept, so the solvers can be run without first
+# building a mesh. This must stay last: in .gitignore the final matching
+# rule wins, so the negation has to follow every pattern above.
+!example_region_mesh_outputs/**
