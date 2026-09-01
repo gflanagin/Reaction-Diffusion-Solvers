@@ -114,23 +114,7 @@ The local deer carrying capacity is defined pointwise on $\Gamma$ as a base capa
   K(\mathbf{x}) = K_0\, c(\mathbf{x}),
   \label{eq:K}
 \end{equation}
-where $c(\mathbf{x})$ takes one of a discrete set of values determined by the land cover classification at $\mathbf{x}$, as listed in Table~\ref{tab:landcover}. Forested and mixed edge habitat is expected to support substantially higher deer densities than open agricultural or developed land, and the coefficients are calibrated against regional deer density estimates so that the population-weighted mean of $K$ reproduces observed densities across the study region. Since $c$ is piecewise constant on the land cover classes, $K$ is discontinuous across class boundaries; this poses no difficulty for the weak formulation of Section~\ref{sec:fem}, in which $K$ enters only through a zeroth-order term.
-
-\begin{table}[h]
-\centering
-\caption{Land cover scaling coefficients defining $K(\mathbf{x}) = K_0\,c(\mathbf{x})$. Classes follow the MRLC National Land Cover Database classification. The adopted values, together with the companion permeability column used in the diffusion tensor, are given in Table~\ref{tab:landcover-values}.}
-\label{tab:landcover}
-\begin{tabular}{@{}ll@{}}
-\toprule
-Land cover class & Scaling coefficient $c$ \\
-\midrule
-[class 1] & [value] \\
-[class 2] & [value] \\
-[class 3] & [value] \\
-$\vdots$ & $\vdots$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+where $c(\mathbf{x})$ takes one of a discrete set of values determined by the land cover classification at $\mathbf{x}$, as listed in Table~\ref{tab:landcover-values}. Forested and mixed edge habitat is expected to support substantially higher deer densities than open agricultural or developed land, and the coefficients are calibrated against regional deer density estimates so that the population-weighted mean of $K$ reproduces observed densities across the study region. Since $c$ is piecewise constant on the land cover classes, $K$ is discontinuous across class boundaries; this poses no difficulty for the weak formulation of Section~\ref{sec:fem}, in which $K$ enters only through a zeroth-order term.
 
 \subsection{Diffusion coefficient \texorpdfstring{$D$}{D}}
 \label{sec:diffusion}
