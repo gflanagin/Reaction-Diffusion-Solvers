@@ -5,8 +5,14 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{hyperref}
-\usepackage{natbib}
+% [numbers] switches natbib from its default author-year mode to numeric
+% citations; unsrtnat then numbers the bibliography in order of first citation.
+% \citet, \citep and \citeauthor all keep working.
+\usepackage[numbers]{natbib}
 \usepackage[table]{xcolor}
+
+% Sections and subsections only; there are no subsubsections.
+\setcounter{tocdepth}{2}
 
 % ---------------------------------------------------------------------
 % Provenance tags for parameter values (Section~\ref{sec:params}).
@@ -39,6 +45,9 @@
 \begin{abstract}
 We present a spatially explicit model of chronic wasting disease (CWD) transmission in white-tailed deer, posed on a two-dimensional surface $\Gamma \subset \mathbb{R}^3$ that is fit to real topographic data. The model extends the classical directly-transmitted wildlife disease framework by including an environmental compartment representing prion contamination of the landscape, which allows for indirect transmission in addition to direct deer-to-deer contact. Diffusion of the deer sub-populations is modeled anisotropically, with local diffusivity depending on land cover and terrain slope, and the local deer carrying capacity is informed by land cover classification data. We describe the model, its parameterization from geographic data sources, and a surface finite element method (FEM) suitable for its numerical solution. We then pose a management problem on top of the model: choosing a spatially and temporally varying culling effort, applied to the prion-shedding class, so as to minimize a weighted combination of the shedding burden, the environmental prion load, and the cost of the intervention. We derive the adjoint system characterizing the optimal control, give the discrete adjoint of the implicit--explicit time-stepping scheme, and describe a forward--backward sweep driven by a projected quasi-Newton method.
 \end{abstract}
+
+\tableofcontents
+\newpage
 
 \section{Introduction}
 
@@ -941,7 +950,7 @@ The model presented here extends the classical directly-transmitted wildlife dis
 
 Future work includes: reconciling the transmission coefficients against the fitted estimates of \citet{Wasserberg2009} and \citet{Miller2006}, which would replace the $R_0$-targeting argument of Section~\ref{sec:params-r0} with a direct calibration; calibrating the land-cover coefficients of Table~\ref{tab:landcover-values} and the carrying capacity $K_0$ against regional surveillance and density data, which are the largest remaining unsupported inputs; calibrating the cost weights against the actual budget and valuation of a management program, $c_4$ in particular having a direct reading as a per-deer removal cost; and exploring spatially varying environmental persistence $\delta(\mathbf{x})$, for example through soil-type dependence. The control formulation itself admits several natural extensions: splitting $R$ into pre-clinical and clinical shedding classes, which is what a sight-based cull would require; additional controls, such as carcass removal (acting as $-v_2 W$ in \eqref{eq:cW}) or non-selective harvest acting on $S$, $I$ and $R$ together; constraints beyond simple bounds, such as a total-budget constraint $\int_0^T\int_\Gamma v \le \mathcal{B}$ or restriction of $v$ to a union of accessible management units; and a terminal payoff penalizing the burden left at $t=T$, which changes only the terminal condition on $\lambda$.
 
-\bibliographystyle{plainnat}
+\bibliographystyle{unsrtnat}
 \bibliography{references}
 
 \end{document}
