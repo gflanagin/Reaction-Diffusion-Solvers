@@ -139,6 +139,13 @@ Every workflow script exposes its paths and parameters as command-line flags.
 Run any of them with `--help` for the complete interface. Defaults reproduce
 the production configuration.
 
+**A note on file extensions.** The examples below write `.tif`, but `.tiff`
+works exactly the same and needs no flag — MRLC downloads in particular often
+arrive as `.tiff`. GDAL identifies a GeoTIFF from the file's contents, not its
+name, so every `--dem` and `--land-cover` path accepts either spelling (or no
+extension at all). The `.tif` in the defaults is just a default string, not a
+requirement; `.gitignore` covers both.
+
 ### 1. Prepare the DEM
 
 Download an elevation GeoTIFF for the study area from the USGS
@@ -244,7 +251,7 @@ overrides the refusal in both places when a partial overlap really is intended.
 ```bash
 python generate_mesh_and_attributes.py \
   --dem region_cropped.tif \
-  --land-cover land_cover.tif \
+  --land-cover land_cover.tiff \
   --parameters parameters.json \
   --output-folder outputs \
   --downsample 3 \
@@ -374,19 +381,34 @@ density estimates stratified by cover type.
 
 ## Example bundle
 
-`example_region_mesh_outputs/` is a complete, ready-to-run bundle for a small
-test region, kept so the solvers can be exercised without running the whole
-pipeline first:
+`example_mesh_output/` is a complete, ready-to-run bundle for a small test
+region, kept so the solvers can be exercised without running the whole pipeline
+first:
 
 ```bash
-python CWD_solver.py --mesh-folder example_region_mesh_outputs \
+python CWD_solver.py --mesh-folder example_mesh_output \
   --output-folder solver_outputs
 ```
 
-Note that its `effective_parameters.json` carries `final_time_years = 5.0`
-rather than the 20-year horizon in `parameters.json` — it was generated for
-quick smoke runs. The source GeoTIFFs it was built from are not included; they
-are large and are re-downloadable from the two links in step 1.
+It holds 38,980 nodes and carries ten NLCD classes (11, 21, 22, 31, 41, 42, 52,
+71, 90, 95), with a nodal diffusivity multiplier spanning the full table range,
+0.01 over open water to 1.0 on grassland and pasture. No node received class 0,
+so the whole mesh sits inside the land-cover tile. Its
+`effective_parameters.json` records the production configuration it was built
+with — `hmax = 150`, `isotropy = 0.02`, `downsample = 3`, `sigma = 3` — and the
+full 20-year horizon, so a solver run against it is not a smoke test and will
+take a while; drop `time.final_time_years` to shorten it.
+
+The bundle was generated with the current pipeline, so it samples land cover
+directly at the mesh nodes and has no aligned intermediate raster. The two
+mesher scratch files left in the folder, `terrain_input.vtk` and
+`terrain_remeshed.mesh`, are gitignored and are not read by anything
+downstream. `susceptible_equilibrium.npy` and its `.json` sidecar appear after
+the first solver run caches them there — see
+[Disease-free spin-up](README_solver.md#disease-free-spin-up).
+
+The source GeoTIFFs it was built from are not included; they are large and are
+re-downloadable from the two links in step 1.
 
 ---
 
@@ -404,6 +426,8 @@ are large and are re-downloadable from the two links in step 1.
 - `land_cover_to_capacity.py` — thin compatibility wrapper around the shared
   carrying-capacity mapping.
 - `environment.yml` — the Conda environment.
+- `example_mesh_output/` — the one committed mesh bundle, so the solvers can be
+  run without building a mesh first. See [Example bundle](#example-bundle).
 
 ### `utilities/`
 

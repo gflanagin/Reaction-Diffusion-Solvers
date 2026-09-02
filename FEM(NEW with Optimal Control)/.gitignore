@@ -17,8 +17,6 @@ forward_summary.json
 *.vtk
 land_cover_classes.npy
 land_cover_diffusivity.npy
-land_cover_reprojected.tif
-land_cover_aligned.tif
 coord_offsets.npy
 effective_parameters.json
 susceptible_equilibrium.npy
@@ -34,5 +32,16 @@ __pycache__/
 
 # The one bundle that IS kept, so the solvers can be run without first
 # building a mesh. This must stay last: in .gitignore the final matching
-# rule wins, so the negation has to follow every pattern above.
-!example_region_mesh_outputs/**
+# rule wins, so the negations have to follow every pattern above.
+#
+# Listed file by file on purpose. The mesher's intermediates in that folder
+# (terrain_input.vtk, terrain_remeshed.mesh) stay ignored: nothing downstream
+# reads them and together they are ~5 MB. The two susceptible_equilibrium
+# entries do not exist until the first solver run caches them there.
+!example_mesh_output/terrain.msh
+!example_mesh_output/land_cover_classes.npy
+!example_mesh_output/land_cover_diffusivity.npy
+!example_mesh_output/coord_offsets.npy
+!example_mesh_output/effective_parameters.json
+!example_mesh_output/susceptible_equilibrium.npy
+!example_mesh_output/susceptible_equilibrium.json

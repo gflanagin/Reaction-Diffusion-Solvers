@@ -487,12 +487,12 @@ $T,\ \Delta t$ & \texttt{final\_time\_years}, \texttt{time\_step\_years} & horiz
 \subsection{Monolithic assembly and block factorization}
 \label{sec:monolithic}
 
-All four compartments are carried in a single mixed space $P = V_S \times V_I \times V_R \times V_W$ built from four degree-1 Lagrange elements. The bilinear form
+All four compartments are carried in a single mixed space $P = V_S \times V_I \times V_R \times V_W$ built from four degree-1 Lagrange elements. We write $U = (u_S,u_I,u_R,u_W) \in P$ for the mixed trial function and $\Psi = (\psi_S,\psi_I,\psi_R,\psi_W) \in P$ for the mixed test function, capitals denoting the mixed functions and lower case their scalar components. The implicit side of the IMEX step \eqref{eq:imex} is then the bilinear form
 \begin{equation}
-a(U,\Psi) = \sum_{X\in\{S,I,R\}} \int_{\Gamma_h}\Big[\,u_X \psi_X + \Delta t\,(D_X\,\Grad u_X)\cdot\Grad \psi_X\Big]\,dA \;+\; \int_{\Gamma_h} u_W \psi_W\, dA
+a(U,\Psi) = \sum_{X\in\{S,I,R\}} \int_{\Gamma_h}\Big[\,u_X \psi_X + \Delta t\,(D_X\,\Grad u_X)\cdot\Grad \psi_X\Big]\,dA \;+\; \int_{\Gamma_h} u_W \psi_W\, dA .
 \label{eq:bilinear}
 \end{equation}
-depends only on the mesh geometry, the land cover and the diffusion parameters --- not on the current solution --- so it is assembled and factorized \emph{once}, before the time loop, and reused unchanged at every step. Mass terms are integrated with the vertex rule of Section~\ref{sec:fem}, giving $M_L$; stiffness terms use a Gauss rule. We write $B$ for the resulting operator.
+Being bilinear, $a$ is of course a function of $U$; what matters for cost is that its \emph{coefficients} are not functions of the state. Only the mesh geometry, the land cover and the diffusion parameters enter them, so testing \eqref{eq:bilinear} over the nodal basis of $P$ produces the same matrix at every time step. That matrix, written $B$, is therefore assembled and factorized \emph{once} before the time loop and reused unchanged, while the load vector on the right --- which does depend on the previous state --- is rebuilt each step. Mass terms are integrated with the vertex rule of Section~\ref{sec:fem}, giving $M_L$; stiffness terms use a Gauss rule.
 
 Since \eqref{eq:bilinear} contains no cross-compartment terms, $B$ is block diagonal,
 \begin{equation}

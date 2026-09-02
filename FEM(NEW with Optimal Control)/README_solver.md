@@ -31,7 +31,7 @@ adjoint derivation, the discrete adjoint of the IMEX scheme, and the optimizer
 
 ```bash
 conda activate cwd-fem
-python CWD_solver.py --mesh-folder example_region_mesh_outputs \
+python CWD_solver.py --mesh-folder example_mesh_output \
   --output-folder solver_outputs
 ```
 
