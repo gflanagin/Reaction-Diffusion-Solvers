@@ -710,7 +710,9 @@ the \emph{reduced} objective, and the control problem is
 \min_{v\in\Vad}\ \hat J(v).
 \label{eq:ocp}
 \end{equation}
-Note that $\hat J$ is not convex in $v$: the state system is nonlinear (through $SR$, $SW$, $SN/K$, and $vR$), so $v\mapsto y(v)$ is nonlinear and \eqref{eq:ocp} may in principle possess several local minimizers. The method of Section~\ref{sec:algorithm} is a descent method and therefore locates a stationary point; a good practice is to re-run from several initial guesses.
+\paragraph{Existence, and what is known about uniqueness.} A minimizer exists. $\Vad$ is bounded, closed and convex in $L^2(\Gamma\times(0,T))$; energy estimates on \eqref{eq:cS}--\eqref{eq:cbc} bound a minimizing sequence uniformly in $L^2(0,T;H^1(\Gamma))$ with time derivatives bounded in $L^2(0,T;H^1(\Gamma)^*)$, so an Aubin--Lions compactness argument upgrades weak convergence to strong convergence in $L^2$ --- which is what is needed to pass to the limit in the bilinear terms $SR$, $SW$, $SN/K$ and $vR$ --- while $c_3>0$ makes the control cost weakly lower semicontinuous. This is the argument of \citet[Thm.~A.2]{Neilan2011} for a parabolic SIR system of the same type.
+
+Uniqueness is another matter. $\hat J$ is not convex in $v$: the state system is nonlinear in the terms just named, so $v\mapsto y(v)$ is nonlinear and \eqref{eq:ocp} may in principle possess several local minimizers. The wildlife-disease control literature is worth citing precisely here, because its objective functionals resemble \eqref{eq:objective} closely. \citet{Clayton2010}, for a raccoon-rabies SEIR model with vaccine dynamics, take a cost \emph{linear} in the control and establish existence together with the Pontryagin necessary conditions; the optimal control is bang-bang with a possible order-one singular arc, and no uniqueness is claimed. \citet{Neilan2011}, whose parabolic SIR model with a quadratic control cost on a box-constrained control is the closest published analogue of \eqref{eq:ocp}, do prove uniqueness --- of the solution of the \emph{optimality system}, and hence of the optimal control, but only for $T$ sufficiently small (their Thm.~A.5). That result is obtained by a Gronwall estimate requiring $\lambda - C_8 - C_9e^{2\lambda T}>0$ with $\lambda$ fixed large beforehand; the admissible horizon is therefore governed by the Lipschitz constants of the nonlinearities and is not quantified. It is not available to us. Our horizon is $T=20$~yr, chosen so that the environmental compartment's multi-year memory $1/\delta$ is resolved, which is the opposite of the small-time regime. The method of Section~\ref{sec:algorithm} accordingly locates a stationary point rather than a certified global minimizer, and re-running from several initial guesses remains good practice.
 
 \subsection{Choosing the weights}
 
@@ -1051,7 +1053,7 @@ The implementation delegates to SciPy's L-BFGS-B, passing the reduced objective 
 
 \emph{The returned iterate.} L-BFGS-B may return a point other than the last one evaluated, so the stored trajectory need not correspond to it. The driver therefore performs one final forward solve at the returned control before writing the state series or the adjoint fields, rather than reusing whatever trajectory happened to be in memory.
 
-Neither method escapes the caveat noted after \eqref{eq:ocp}: $\hat J$ is not convex, so both locate a stationary point rather than a global minimizer, and re-running from several initial guesses remains good practice.
+Neither method escapes the non-convexity of $\hat J$ noted after \eqref{eq:ocp}: both locate a stationary point, not a certified global minimizer.
 
 \subsection{Verification: the Taylor test}
 \label{sec:verification}
@@ -1152,6 +1154,18 @@ M.~W. Miller, N.~T. Hobbs, and S.~J. Tavener.
 S.~Lenhart and J.~T. Workman.
 \newblock \textit{Optimal Control Applied to Biological Models}.
 \newblock Chapman and Hall/CRC, 2007.
+
+\bibitem[Clayton et al.(2010)]{Clayton2010}
+T.~Clayton, S.~Duke-Sylvester, L.~J. Gross, S.~Lenhart, and L.~A. Real.
+\newblock Optimal control of a rabies epidemic model with a birth pulse.
+\newblock \textit{Journal of Biological Dynamics}, 4(1):43--58, 2010.
+\newblock \textit{[Raccoon-rabies SEIR model with a cost linear in the control; establishes existence and the Pontryagin necessary conditions, giving a bang-bang control with a possible order-one singular arc. No uniqueness is claimed.]}
+
+\bibitem[Miller Neilan and Lenhart(2011)]{Neilan2011}
+R.~Miller Neilan and S.~Lenhart.
+\newblock Optimal vaccine distribution in a spatiotemporal epidemic model with an application to rabies and raccoons.
+\newblock \textit{Journal of Mathematical Analysis and Applications}, 378(2):603--619, 2011.
+\newblock \textit{[Parabolic SIR system with no-flux boundaries, a box-constrained control and a quadratic control cost: the closest published analogue of the problem posed in Section~\ref{sec:control}. Theorem~A.2 is the existence argument adopted above; Theorem~A.5 gives uniqueness of the optimality system for $T$ sufficiently small.]}
 
 \bibitem[Hinze et al.(2009)]{Hinze2009}
 M.~Hinze, R.~Pinnau, M.~Ulbrich, and S.~Ulbrich.
