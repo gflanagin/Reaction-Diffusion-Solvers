@@ -18,8 +18,9 @@ exist.
 With no --target-crs the appropriate UTM zone is derived from the raster's own
 centroid. With no --bounds the whole source raster is reprojected.
 
-Two defaults differ deliberately from align_land_cover.py, which reprojects the
-categorical NLCD raster:
+Two defaults are worth noting, both of which differ from how the categorical
+NLCD raster is handled (it is not reprojected at all -- it is sampled at the
+mesh nodes; see utilities/land_cover_sampling.py):
 
   * Resampling is BILINEAR, not nearest. Nearest-neighbour on continuous
     elevation leaves stair-steps, and those become spurious slope, which feeds

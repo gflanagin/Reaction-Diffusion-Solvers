@@ -8,7 +8,7 @@ import meshio
 import pyvista as pv
 from dolfinx.io.gmsh import read_from_msh
 from mpi4py import MPI
-from rasterio.transform import rowcol, xy
+from rasterio.transform import xy
 from scipy.ndimage import gaussian_filter
 
 # Imported for its side effect: it registers the .mmg accessor on PyVista
@@ -26,11 +26,15 @@ from shared_parameters import (  # noqa: E402
     land_cover_to_diffusivity,
     load_parameters,
 )
+from land_cover_sampling import (  # noqa: E402
+    check_coverage,
+    read_crs,
+    report_node_class_coverage,
+    sample_land_cover_at_nodes,
+)
 
-def compute_metric(verts, faces, hmax, isotropy, min_lc_squish,
-                   activation_steepness, activation_cosine_threshold,
-                   lc_grad=None, lc_diffusivity=None,
-                   lc_neighbor_max=None, lc_neighbor_min=None):
+def compute_metric(verts, faces, hmax, isotropy,
+                   activation_steepness, activation_cosine_threshold):
     eps = 1e-6
     normals = np.zeros((len(verts), 3))
     counts = np.zeros(len(verts))
@@ -86,40 +90,22 @@ def compute_metric(verts, faces, hmax, isotropy, min_lc_squish,
 
             M_slope = (1/h_s) * np.outer(es, es) + np.outer(ec, ec)
 
-        if lc_grad is not None:
-            g_lc = lc_grad[i]
-            norm_glc = np.linalg.norm(g_lc)
-
-            if norm_glc < eps:
-                M_lc = np.eye(3) - np.outer(normal, normal)
-            else:
-                e_perp = g_lc / norm_glc  # across boundary
-                e_par = np.cross(normal, e_perp)  # along boundary
-                norm_par = np.linalg.norm(e_par)
-                e_par = e_par/norm_par
-
-                lc_low = min(lc_diffusivity[i], lc_neighbor_min[i])
-                lc_high = max(lc_diffusivity[i], lc_neighbor_max[i])
-                
-                r = min_lc_squish + (1-min_lc_squish)*(lc_low / lc_high) if lc_high > eps else 1.0
-                
-                M_lc = (1/r) * np.outer(e_perp, e_perp) +  np.outer(e_par, e_par) 
-        else:
-            M_lc = np.eye(3) - np.outer(normal, normal)
-                
-        M = (1/hmax**2) * (M_slope @ M_lc @ M_lc @ M_slope + M_lc @ M_slope @ M_slope @ M_lc)/2
+        # M_slope acts only within the tangent plane, so the symmetrised
+        # product that formerly combined it with a land-cover metric reduces
+        # exactly to M_slope squared.
+        M = (1/hmax**2) * (M_slope @ M_slope)
         metrics[i] = [M[0,0], M[0,1], M[0,2],
                             M[1,1], M[1,2],
                                     M[2,2]]
     return metrics
 
-def dem_to_msh(input_tif, output_msh, nlcd_aligned_path,
+def dem_to_msh(input_tif, output_msh,
                spatial_parameters,
                coord_offsets_path="coord_offsets.npy",
                terrain_input_path="terrain_input.vtk",
                remeshed_path="terrain_remeshed.mesh",
                downsample=3, smooth=True, sigma=2, hmax=400,
-               isotropy=.1, min_lc_squish=.1):
+               isotropy=.1):
 
     # --- Read DEM ---
     print(f"Reading {input_tif}...")
@@ -183,14 +169,6 @@ def dem_to_msh(input_tif, output_msh, nlcd_aligned_path,
     )
     meshio.write(terrain_input_path, tmp_mesh)
 
-    # Sample land cover at mesh vertices
-    print("Sampling land cover at mesh vertices...")
-    x_offset, y_offset = np.load(coord_offsets_path)
-    land_cover = sample_nlcd_at_nodes(nlcd_aligned_path, verts, x_offset, y_offset)
-    lc_diffusivity = land_cover_to_diffusivity(land_cover, spatial_parameters)
-    lc_grad = compute_lc_gradient(verts, faces, lc_diffusivity)
-    lc_neighbor_min, lc_neighbor_max = compute_lc_neighbor_stats(verts, faces, lc_diffusivity)
-
     #Compute metric
     print("Computing anisotropic metric...")
     tensor_parameters = spatial_parameters["diffusion_tensor"]
@@ -199,13 +177,8 @@ def dem_to_msh(input_tif, output_msh, nlcd_aligned_path,
         faces,
         hmax,
         isotropy,
-        min_lc_squish,
         tensor_parameters["activation_steepness"],
         tensor_parameters["activation_cosine_threshold"],
-        lc_grad=lc_grad,
-        lc_diffusivity=lc_diffusivity,
-        lc_neighbor_max=lc_neighbor_max,
-        lc_neighbor_min=lc_neighbor_min,
     )
 
     """
@@ -225,7 +198,7 @@ def dem_to_msh(input_tif, output_msh, nlcd_aligned_path,
     print("Remeshing with mmgpy...")
     mesh = pv.read(terrain_input_path)
     mesh.point_data["metric"] = metrics  # shape (n_verts, 6)
-    hmin = isotropy*min_lc_squish*hmax
+    hmin = isotropy*hmax
     remeshed = mesh.mmg.remesh(
         hmin=hmin,
         hmax=hmax,
@@ -252,89 +225,21 @@ def dem_to_msh(input_tif, output_msh, nlcd_aligned_path,
 
     print(f"Mesh created! Written to {output_msh}")
 
-def sample_nlcd_at_nodes(nlcd_aligned_path, mesh_verts, x_offset, y_offset):
-    with rasterio.open(nlcd_aligned_path) as src:
-        data = src.read(1)
-        transform = src.transform
-
-    xs = mesh_verts[:, 0] + x_offset
-    ys = mesh_verts[:, 1] + y_offset
-
-    rows, cols = rowcol(transform, xs, ys)
-    rows = np.clip(rows, 0, data.shape[0] - 1)
-    cols = np.clip(cols, 0, data.shape[1] - 1)
-
-    land_cover = data[rows, cols].astype(np.int32)
-    print(f"Unique land cover classes at mesh nodes: {np.unique(land_cover)}")
-    return land_cover
-
-def compute_lc_gradient(verts, faces, lc_diffusivity):
-    """Compute gradient of lc_diffusivity at each vertex, normalized to max gradient in domain"""
-    grad_lc = np.zeros((len(verts), 3))
-    counts = np.zeros(len(verts))
-
-    for face in faces:
-        pts = verts[face]
-        lc_vals = lc_diffusivity[face]
-        
-        v1 = pts[1] - pts[0]
-        v2 = pts[2] - pts[0]
-        dlc1 = lc_vals[1] - lc_vals[0]
-        dlc2 = lc_vals[2] - lc_vals[0]
-        
-        # Solve for gradient on triangle using least squares
-        # grad_lc . v1 = dlc1, grad_lc . v2 = dlc2
-        A = np.array([[v1[0], v1[1], v1[2]],
-                      [v2[0], v2[1], v2[2]]])
-        b = np.array([dlc1, dlc2])
-        
-        # Project onto triangle plane first
-        normal = np.cross(v1, v2)
-        norm_len = np.linalg.norm(normal)
-        if norm_len < 1e-10:
-            continue
-        normal /= norm_len
-        
-        # Surface gradient via least squares
-        try:
-            gh, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-        except:
-            continue
-            
-        for i in face:
-            grad_lc[i] += gh
-            counts[i] += 1
-
-    mask = counts > 0
-    grad_lc[mask] /= counts[mask, np.newaxis]
-    return grad_lc
-
-def compute_lc_neighbor_stats(verts, faces, lc_diffusivity):
-    n_verts = len(verts)
-    adjacency = [set() for _ in range(n_verts)]
-    for face in faces:
-        for i in range(3):
-            for j in range(3):
-                if i != j:
-                    adjacency[face[i]].add(face[j])
-    
-    lc_neighbor_min = lc_diffusivity.copy()
-    lc_neighbor_max = lc_diffusivity.copy()
-    for i, neighbors in enumerate(adjacency):
-        for j in neighbors:
-            lc_neighbor_min[i] = min(lc_neighbor_min[i], lc_diffusivity[j])
-            lc_neighbor_max[i] = max(lc_neighbor_max[i], lc_diffusivity[j])
-    
-    return lc_neighbor_min, lc_neighbor_max
-
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Create an anisotropic terrain mesh and matching nodal land-cover arrays."
     )
     parser.add_argument("--dem", default="dem.tif",
                         help="Input elevation GeoTIFF.")
-    parser.add_argument("--land-cover", default="land_cover_aligned.tif",
-                        help="Land-cover raster aligned to the DEM CRS/grid.")
+    parser.add_argument("--land-cover", default="land_cover.tif",
+                        help="Categorical land-cover raster. Sampled directly "
+                             "at the mesh nodes, so it may be in any CRS at "
+                             "any resolution; it just has to contain the DEM.")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="Proceed even if the land-cover raster does not "
+                             "cover the DEM. The uncovered nodes become class "
+                             "0, which is a mapped class, so the model will "
+                             "run on landscape with no land-cover structure.")
     parser.add_argument("--parameters", default=str(DEFAULT_PARAMETERS),
                         help="Combined model parameter JSON file.")
     parser.add_argument("--output-folder", default=None,
@@ -364,8 +269,6 @@ def build_parser():
                         help="Override mesh.hmax.")
     parser.add_argument("--isotropy", type=float, default=None,
                         help="Override diffusion_tensor.isotropy.")
-    parser.add_argument("--min-lc-squish", type=float, default=None,
-                        help="Override mesh.min_land_cover_squish.")
     return parser
 
 
@@ -378,8 +281,6 @@ def validate_args(args):
         raise ValueError("--hmax must be positive.")
     if not 0 < args.isotropy <= 1:
         raise ValueError("--isotropy must be in (0, 1].")
-    if not 0 < args.min_lc_squish <= 1:
-        raise ValueError("--min-lc-squish must be in (0, 1].")
 
 
 def main():
@@ -409,17 +310,20 @@ def main():
         args.hmax = float(mesh_parameters["hmax"])
     if args.isotropy is None:
         args.isotropy = float(tensor_parameters["isotropy"])
-    if args.min_lc_squish is None:
-        args.min_lc_squish = float(mesh_parameters["min_land_cover_squish"])
 
     validate_args(args)
+
+    # Checked before the meshing, which is the expensive part, and before
+    # anything is written. The land cover is not needed to build the mesh, but
+    # discovering that the tile is in the wrong place after an mmg run is a
+    # waste of everyone's time.
+    check_coverage(args.land_cover, args.dem, args.allow_partial)
 
     # Record CLI overrides in the effective configuration consumed by this run.
     mesh_parameters["downsample"] = args.downsample
     mesh_parameters["smooth"] = args.smooth
     mesh_parameters["smoothing_sigma"] = args.sigma
     mesh_parameters["hmax"] = args.hmax
-    mesh_parameters["min_land_cover_squish"] = args.min_lc_squish
     tensor_parameters["isotropy"] = args.isotropy
 
     output_paths = (
@@ -441,7 +345,6 @@ def main():
     dem_to_msh(
         input_tif=args.dem,
         output_msh=args.output_msh,
-        nlcd_aligned_path=args.land_cover,
         spatial_parameters=spatial_parameters,
         coord_offsets_path=args.coord_offsets_output,
         terrain_input_path=args.terrain_input,
@@ -451,7 +354,6 @@ def main():
         downsample=args.downsample,
         hmax=args.hmax,
         isotropy=args.isotropy,
-        min_lc_squish=args.min_lc_squish,
     )
 
     mesh_data = read_from_msh(args.output_msh, MPI.COMM_WORLD, gdim=3)
@@ -460,9 +362,10 @@ def main():
     x_offset, y_offset = np.load(args.coord_offsets_output)
 
     print("Computing land cover classes on final mesh")
-    land_cover = sample_nlcd_at_nodes(
-        args.land_cover, coords, x_offset, y_offset
+    land_cover = sample_land_cover_at_nodes(
+        args.land_cover, coords, x_offset, y_offset, read_crs(args.dem)
     )
+    report_node_class_coverage(land_cover, args.allow_partial)
     diffusivity = land_cover_to_diffusivity(land_cover, spatial_parameters)
 
     np.save(args.diffusivity_output, diffusivity)

@@ -116,14 +116,17 @@ The local deer carrying capacity is defined pointwise on $\Gamma$ as a base capa
 \end{equation}
 where $c(\mathbf{x})$ takes one of a discrete set of values determined by the land cover classification at $\mathbf{x}$, as listed in Table~\ref{tab:landcover-values}. Forested and mixed edge habitat is expected to support substantially higher deer densities than open agricultural or developed land, and the coefficients are calibrated against regional deer density estimates so that the population-weighted mean of $K$ reproduces observed densities across the study region. Since $c$ is piecewise constant on the land cover classes, $K$ is discontinuous across class boundaries; this poses no difficulty for the weak formulation of Section~\ref{sec:fem}, in which $K$ enters only through a zeroth-order term.
 
-\subsection{Diffusion coefficient \texorpdfstring{$D$}{D}}
+\subsection{Terrain/Land-cover aware Diffusion Tensor \texorpdfstring{$D$}{D}}
 \label{sec:diffusion}
 
-Deer movement, and hence the effective diffusivity of $S$, $I$, and $R$, depends on both land cover and local terrain steepness. (As noted above, $W$ does not diffuse.) We take the diffusivity to be locally isotropic but spatially varying, and decompose it additively into a slope contribution and a land-cover contribution:
+Deer movement, and hence the effective diffusivity of $S$, $I$, and $R$, depends on both land cover and local terrain steepness. (As noted above, $W$ does not diffuse.) To model realistic movement of deer, we handle diffusion in the slope direction separately from the contour direction. In this way, we can limit the diffusion along the slope direction depending on terrain steepness while allowing free diffusion in the contour direction. Additionally, we include a permeability factor to limit diffusion depending on local land cover to model movement through various environments. The terrain and land-cover aware diffusion tensor is constructed as follows:
+
 \begin{equation}
-  D(\mathbf{x}) = D_s(\mathbf{x}) + D_c(\mathbf{x}).
+  D(\mathbf{x}) = \ell(\mathbf{x})(D_c(\mathbf{x})\mathbf{e_{c}e_{c}^T} + D_s(\mathbf{x})\mathbf{e_{s}e_{s}^T})
   \label{eq:D}
 \end{equation}
+
+Where $\mathbf{e_s}$ is the normalized projection of the direction of gravity onto the surface at $\mathbf{x}$, $\mathbf{e_c}$ is a normalized surface direction perpendicular to $\mathbf{e_s}$, and $\ell$ is the permeability of movement through the local land cover class. Below the local slope and contour dependent factors $D_s(\mathbf{x})$ and $D_c(\mathbf{x})$ are described below.
 
 \paragraph{Slope dependence.}
 Let $\mathbf{n}(\mathbf{x})$ be the upward-facing unit normal to $\Gamma$ at $\mathbf{x}$, and let $\phi \in [0,\pi/2)$ be the terrain slope angle, defined by
@@ -137,8 +140,8 @@ so that $\phi = 0$ on flat ground and $\phi$ increases as the terrain steepens. 
 \end{equation}
 This is a smooth cutoff: $D_s$ is nearly constant on gentle terrain and decays approximately exponentially once the slope exceeds a transition value, the transition being centered at $\cos\phi = 0.96$, i.e.\ $\phi \approx 16.3^\circ$, with a width set by the steepness parameter $50$. The form encodes the empirical observation that deer avoid traversing steep terrain, for which the energetic cost of movement is high; the specific centering and width should be regarded as tunable and calibrated against telemetry-derived step-selection data where available.
 
-\paragraph{Land-cover dependence.}
-For the present study the land-cover component is taken to be spatially constant,
+\paragraph{Contour dependence.}
+For the present study the contour component is taken to be spatially constant,
 \begin{equation}
   D_c(\mathbf{x}) = \kappa_2,
 \end{equation}
@@ -155,8 +158,8 @@ so that $D = 2\kappa_2$ on flat ground and $D \to \kappa_2$ as the terrain becom
 
 \begin{figure}[h]
 \centering
-\fbox{\parbox{0.6\textwidth}{\centering \vspace{2cm} [Insert plot of $D_s(\phi)$ vs.\ slope angle here] \vspace{2cm}}}
-\caption{Slope-dependent diffusivity $D_s$ as a function of terrain slope angle $\phi$, showing the sigmoidal decay centered at $\phi \approx 16.3^\circ$, with $\kappa_1 = \kappa_2(1+e^{-2})$ chosen so that $D_s = \kappa_2$ on flat ground.}
+\includegraphics[width=3in]{Screenshot 2026-09-02 103330.png}
+\caption{Slope-dependent diffusivity $D_s$ as a function of terrain slope angle $\phi$, normalized with $\kappa_2=1$}
 \label{fig:Ds}
 \end{figure}
 
@@ -181,8 +184,8 @@ $\sigma$   & Progression rate, $I \to R$                   & yr$^{-1}$          
 $\alpha$   & Removal rate of infectious deer               & yr$^{-1}$                        & Table~\ref{tab:paramvalues} \\
 $\rho$     & Environmental prion shedding rate             & (units of $W$)\,deer$^{-1}$\,yr$^{-1}$ & Table~\ref{tab:paramvalues} \\
 $\delta$   & Environmental prion decay rate                & yr$^{-1}$                        & Table~\ref{tab:paramvalues} \\
-$\kappa_2$ & Baseline (land-cover) diffusivity             & km$^{2}$\,yr$^{-1}$              & Table~\ref{tab:paramvalues} \\
-$\kappa_1$ & Slope diffusivity scale, $\kappa_2(1+e^{-2})$ & km$^{2}$\,yr$^{-1}$              & derived \\
+$\kappa_2$ & Baseline (land-cover) diffusivity             & m$^{2}$\,yr$^{-1}$              & Table~\ref{tab:paramvalues} \\
+$\kappa_1$ & Slope diffusivity scale, $\kappa_2(1+e^{-2})$ & m$^{2}$\,yr$^{-1}$              & derived \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -724,8 +727,7 @@ The linear weight $c_4$ is set to $0$ by default, so the shipped configuration i
 
 Raising $c_4$ while lowering $c_3$ has one real cost, and it is a conditioning cost rather than a modelling one. The quadratic weight contributes a uniform $2c_3\mathcal{I}$ floor to the reduced Hessian (Section~\ref{sec:lbfgs}); without it only the compact state-coupling operator remains, and its spectrum decays to zero. The limit $c_3\to0$ is the bang-bang problem, and is where convergence degrades --- a continuous dial, not a cliff, but the reason $c_3>0$ is required rather than merely recommended. One tempting move should be named and refused: since $|v|$ is not differentiable at the origin \emph{in general}, one might reach for a smoothed surrogate such as $\sqrt{v^2+\varepsilon}$. That is unnecessary here, because $v\ge0$ makes the term linear on $\Vad$, and it is actively harmful: the surrogate's curvature is $\varepsilon^{-1/2}$ at the origin and decays like $\varepsilon/v^3$ away from it, a spread of order $10^6$ across the box at $\varepsilon=10^{-6}$, manufacturing exactly the ill-conditioning it was meant to avoid.
 
-The bound $v_{\max}$ deserves the same scrutiny, since it is what makes the box constraint bite. The control is a per-capita removal rate on $R$, so $v_{\max} = 1\ \mathrm{yr}^{-1}$ sustained for a year removes $1 - e^{-1} = 63\%$ of the shedding class --- at or beyond the ceiling of any real agency cull program, and certainly beyond what the most intensive Wisconsin CWD-zone efforts sustained landscape-wide \citep{Wasserberg2009}. \tagGUESS{}. Recall that the model contains no harvest, so this is the whole removal effort on $R$ and not an increment on top of one. An earlier draft used $v_{\max} = 5$, i.e.\ $99.3\%$ annual removal, which left the constraint effectively inactive and let the optimizer buy an unrealistically cheap solution.
-
+The bound $v_{\max}$ deserves the same scrutiny, since it is what makes the box constraint bite. The control is a per-capita removal rate on $R$, so $v_{\max} = 1\ \mathrm{yr}^{-1}$ sustained for a year removes $1 - e^{-1} = 63\%$ of the shedding class --- at or beyond the ceiling of any real agency cull program, and certainly beyond what the most intensive Wisconsin CWD-zone efforts sustained landscape-wide \citep{Wasserberg2009}. \tagGUESS{}. 
 % ======================================================================
 \section{Derivation of the Adjoint System}
 \label{sec:adjoint-derivation}

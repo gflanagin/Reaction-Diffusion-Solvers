@@ -114,13 +114,13 @@ Command-line values such as `--hmax` and `--isotropy` override the corresponding
 value for that mesh run. With no override, the value comes from
 `parameters.json`.
 
-### Three parameters feed the mesher as well as the solver
+### Parameters that feed the mesher as well as the solver
 
-`diffusion_tensor.isotropy`, `mesh.min_land_cover_squish`, and the
-`land_cover.diffusivity` table all drive the MMG refinement metric *and* the
-PDE tensor. Changing any of them should be followed by mesh regeneration, not
-just a new solver run. Changing a *carrying-capacity* value affects only the
-solver and needs no new mesh.
+`diffusion_tensor.isotropy` drives the MMG refinement metric *and* the PDE
+tensor, and the `land_cover.diffusivity` table is baked into the mesh bundle as
+`land_cover_diffusivity.npy`. Changing either should be followed by mesh
+regeneration, not just a new solver run. Changing a *carrying-capacity* value
+affects only the solver and needs no new mesh.
 
 Important mesh parameters:
 
@@ -128,9 +128,8 @@ Important mesh parameters:
 - `sigma` — Gaussian elevation smoothing strength (`--no-smooth` disables it).
 - `hmax` — nominal, coarsest target edge scale in raster coordinate units.
 - `isotropy` — minimum slope-direction scale ratio, currently `0.02`. This is a
-  degeneracy floor, not a movement parameter; see the `_notes` entry.
-- `min_land_cover_squish` — extra refinement ratio across sharp land-cover
-  boundaries.
+  degeneracy floor, not a movement parameter; see the `_notes` entry. It also
+  sets the finest edge length, `hmin = isotropy * hmax` (here `3 m`).
 
 ---
 
@@ -212,57 +211,40 @@ Finally, download an NLCD land-cover TIFF from the
 [MRLC Viewer](https://www.mrlc.gov/viewer/) using its Data Download tool. The
 NLCD raster does **not** need the same bounds, resolution, or CRS as the DEM. It
 only needs to completely contain the DEM's geographic extent; a much larger NLCD
-region is fine, because step 2 reprojects and clips it to the DEM grid.
+region is fine, because it is sampled directly at the mesh nodes.
 
-### 2. Reproject and align the land-cover raster
-
-```bash
-python align_land_cover.py \
-  --input-land-cover land_cover.tif \
-  --reprojected-land-cover outputs/land_cover_reprojected.tif \
-  --dem region_cropped.tif \
-  --output outputs/land_cover_aligned.tif
-```
-
-Two categorical-raster operations happen here:
-
-1. Reproject the source NLCD TIFF into the DEM's coordinate reference system.
-2. Resample it onto the DEM grid using **nearest-neighbour** resampling.
-
-Nearest-neighbour is essential: NLCD values are class codes, not continuous
-measurements, and any interpolating resampler invents classes that do not exist.
-
-`--target-crs` is optional; omitted, the target CRS is read from the DEM. The
-remaining defaults are source `land_cover.tif`, intermediate
-`land_cover_reprojected.tif`, reference `dem.tif`, result
-`land_cover_aligned.tif`.
-
-The script refuses to write a result whose NLCD tile does not cover the DEM.
-That check exists because the failure it catches is silent: NLCD uses class 0
-for background, the aligner writes 0 outside the source raster, and class 0
-maps to a real diffusivity and a real carrying capacity — so an NLCD tile that
-misses the DEM entirely produces a perfectly valid GeoTIFF that the mesher
-consumes happily, giving a model on a uniform landscape with no land-cover
-structure at all. `--allow-partial` overrides the refusal when a partial
-overlap really is intended.
-
-Verify the alignment:
+### 2. Check that the land cover covers the DEM
 
 ```bash
-python utilities/check_raster_alignment.py \
-  --dem region_cropped.tif --land-cover outputs/land_cover_aligned.tif
+python check_land_cover_coverage.py   --land-cover land_cover.tif   --dem region_cropped.tif
 ```
 
-It exits non-zero unless the CRS, size, and bounds match exactly, and it prints
-the classes present and the zero/nodata pixel count. Read that count before
-accepting the run.
+The land-cover raster is **not** reprojected or resampled onto the DEM grid.
+`generate_mesh_and_attributes.py` samples it directly at the mesh nodes,
+warping the query points into the raster's own CRS, so the tile may be in any
+CRS at any resolution. That is one nearest-neighbour lookup instead of two
+chained ones, which matters for categorical data: every resampling step shifts
+class boundaries by up to a pixel.
+
+What can still go wrong is the tile being somewhere else. That failure is
+silent: NLCD uses class 0 for background, nodes outside the raster are recorded
+as class 0, and class 0 maps to a real diffusivity and a real carrying capacity
+in `parameters.json` — so a tile that misses the DEM gives a mesh bundle that
+looks entirely valid and a model running on a uniform landscape with no
+land-cover structure at all. This script exits non-zero on that case and prints
+the lon/lat box to re-download.
+
+Step 3 runs the same check itself before it starts meshing, and additionally
+audits the sampled node classes afterwards, so step 2 is optional — it just
+lets you test a download without committing to a mesh run. `--allow-partial`
+overrides the refusal in both places when a partial overlap really is intended.
 
 ### 3. Generate the terrain `.msh` and node attributes
 
 ```bash
 python generate_mesh_and_attributes.py \
   --dem region_cropped.tif \
-  --land-cover outputs/land_cover_aligned.tif \
+  --land-cover land_cover.tif \
   --parameters parameters.json \
   --output-folder outputs \
   --downsample 3 \
@@ -312,7 +294,6 @@ outputs/
 ├── land_cover_classes.npy          <- solver input
 ├── land_cover_diffusivity.npy      <- solver input
 ├── coord_offsets.npy               <- for re-sampling attributes later
-├── land_cover_aligned.tif          <- step 2 output, kept for the same reason
 ├── terrain_input.vtk               <- intermediate, inspection only
 └── terrain_remeshed.mesh           <- intermediate, inspection only
 ```
@@ -345,16 +326,21 @@ can be regenerated against the existing mesh:
 ```bash
 python utilities/resample_land_cover_on_existing_mesh.py \
   --mesh outputs/terrain.msh \
-  --land-cover outputs/land_cover_aligned.tif \
+  --land-cover land_cover.tif \
+  --dem region_cropped.tif \
   --coord-offsets outputs/coord_offsets.npy \
   --classes-output outputs/land_cover_classes.npy \
   --diffusivity-output outputs/land_cover_diffusivity.npy
 ```
 
-This is valid for a changed *carrying-capacity* table. It is **not** a
-substitute for regenerating the mesh after a change to
-`land_cover.diffusivity`, `isotropy`, or `min_land_cover_squish`, because those
-also set the refinement metric.
+The mesh geometry does not depend on land cover at all, so this covers a
+changed *carrying-capacity* table **and** a changed `land_cover.diffusivity`
+table — neither needs a new mesh. `--dem` is read only for its CRS, which is
+the CRS the mesh coordinates are in.
+
+It is **not** a substitute for remeshing after a change to `isotropy`, the
+activation parameters, `hmax`, or the DEM itself, all of which set the
+refinement metric.
 
 ---
 
@@ -411,8 +397,8 @@ are large and are re-downloadable from the two links in step 1.
 - `parameters.json` — combined mesh, diffusion, land-cover, time,
   initial-condition, spin-up, and reaction configuration, with a `_notes`
   block of provenance beside every value.
-- `align_land_cover.py` — step 2: reproject and resample the NLCD raster onto
-  the DEM grid, with a coverage check.
+- `check_land_cover_coverage.py` — step 2: verify the NLCD tile covers the DEM.
+  Optional; step 3 runs the same check itself.
 - `generate_mesh_and_attributes.py` — step 3: the integrated
   TIFF-to-MSH-plus-attributes pipeline.
 - `land_cover_to_capacity.py` — thin compatibility wrapper around the shared
@@ -429,7 +415,8 @@ are large and are re-downloadable from the two links in step 1.
 - `reproject_dem.py` — step 1: reproject a DEM from geographic degrees to
   projected metres, cropping in the same pass.
 - `crop_dem_valid_window.py` — step 1: crop a DEM to its valid-data window.
-- `check_raster_alignment.py` — step 2 verification.
+- `land_cover_sampling.py` — sampling the land-cover raster at mesh nodes,
+  plus the coverage and class-0 checks. Shared by step 3 and the re-sampler.
 - `resample_land_cover_on_existing_mesh.py` — regenerate the two `.npy` arrays
   for an already-created mesh.
 - `export_mesh_to_xdmf.py` — optional ParaView export.

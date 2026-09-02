@@ -305,8 +305,6 @@ def load_parameters(path=DEFAULT_PARAMETERS):
         raise ValueError("mesh.smoothing_sigma cannot be negative")
     if float(mesh["hmax"]) <= 0:
         raise ValueError("mesh.hmax must be positive")
-    if not 0 < float(mesh["min_land_cover_squish"]) <= 1:
-        raise ValueError("mesh.min_land_cover_squish must be in (0, 1]")
     if not 0 < float(tensor["isotropy"]) <= 1:
         raise ValueError("diffusion_tensor.isotropy must be in (0, 1]")
     if float(tensor["kappa"]) <= 0:

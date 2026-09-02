@@ -1,8 +1,6 @@
 from dolfinx.io.gmsh import read_from_msh
 from mpi4py import MPI
 import numpy as np
-import rasterio
-from rasterio.transform import rowcol
 import argparse
 from pathlib import Path
 import sys
@@ -16,29 +14,26 @@ from shared_parameters import (  # noqa: E402
     land_cover_to_diffusivity,
     load_parameters,
 )
-
-def sample_nlcd_at_nodes(nlcd_aligned_path, mesh_verts, x_offset, y_offset):
-    with rasterio.open(nlcd_aligned_path) as src:
-        data = src.read(1)
-        transform = src.transform
-
-    xs = mesh_verts[:, 0] + x_offset
-    ys = mesh_verts[:, 1] + y_offset
-
-    rows, cols = rowcol(transform, xs, ys)
-    rows = np.clip(rows, 0, data.shape[0] - 1)
-    cols = np.clip(cols, 0, data.shape[1] - 1)
-
-    land_cover = data[rows, cols].astype(np.int32)
-    print(f"Unique land cover classes at mesh nodes: {np.unique(land_cover)}")
-    return land_cover
+from land_cover_sampling import (  # noqa: E402
+    read_crs,
+    report_node_class_coverage,
+    sample_land_cover_at_nodes,
+)
 
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Regenerate nodal land-cover arrays for an existing mesh."
     )
     parser.add_argument("--mesh", default="terrain.msh")
-    parser.add_argument("--land-cover", default="land_cover_aligned.tif")
+    parser.add_argument("--land-cover", default="land_cover.tif",
+                        help="Categorical land-cover raster, in any CRS.")
+    parser.add_argument("--dem", default="dem.tif",
+                        help="DEM the mesh was built from. Only its CRS is "
+                             "read: mesh coordinates are in it, and the "
+                             "sampling points are warped from it into the "
+                             "land-cover raster's CRS.")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="Proceed even if most nodes receive class 0.")
     parser.add_argument("--coord-offsets", default="coord_offsets.npy")
     parser.add_argument("--classes-output", default="land_cover_classes.npy")
     parser.add_argument("--diffusivity-output", default="land_cover_diffusivity.npy")
@@ -55,9 +50,10 @@ def main():
     coords = domain.geometry.x
     x_offset, y_offset = np.load(args.coord_offsets)
 
-    land_cover = sample_nlcd_at_nodes(
-        args.land_cover, coords, x_offset, y_offset
+    land_cover = sample_land_cover_at_nodes(
+        args.land_cover, coords, x_offset, y_offset, read_crs(args.dem)
     )
+    report_node_class_coverage(land_cover, args.allow_partial)
     diffusivity = land_cover_to_diffusivity(land_cover, spatial_parameters)
 
     np.save(args.diffusivity_output, diffusivity)
