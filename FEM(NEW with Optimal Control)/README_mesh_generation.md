@@ -390,10 +390,34 @@ python CWD_solver.py --mesh-folder example_mesh_output \
   --output-folder solver_outputs
 ```
 
-It holds 38,980 nodes and carries ten NLCD classes (11, 21, 22, 31, 41, 42, 52,
-71, 90, 95), with a nodal diffusivity multiplier spanning the full table range,
-0.01 over open water to 1.0 on grassland and pasture. No node received class 0,
-so the whole mesh sits inside the land-cover tile. Its
+### Where it is
+
+The region is a 3.9 km × 3.3 km patch of the San Juan Mountains in southwest
+Colorado, about 13 km²:
+
+```
+             W          S          E          N
+DEM    -107.6507    37.8962  -107.6061    37.9259
+```
+
+It is high alpine terrain — the DEM runs from 3,273 m to 4,103 m, 830 m of
+relief across less than 4 km — which is why it makes a useful test case for the
+slope-dependent anisotropic tensor: much of the domain is steep enough to sit
+well past the `activation_cosine_threshold` transition.
+
+Be aware that it is **not** representative white-tailed deer habitat. Half the
+nodes are grassland or herbaceous (class 71) and a third are barren rock (31),
+with only 12% evergreen forest (42) — the mesh is largely at or above treeline,
+whereas the `K₀ = 10` deer/km² of `parameters.json` describes a Midwestern or
+eastern herd. Treat this bundle as a geometry and pipeline fixture, not as an
+ecologically meaningful scenario.
+
+### What it holds
+
+38,980 nodes carrying ten NLCD classes (11, 21, 22, 31, 41, 42, 52, 71, 90,
+95), with a nodal diffusivity multiplier spanning the full table range, 0.01
+over open water to 1.0 on grassland and pasture. No node received class 0, so
+the whole mesh sits inside the land-cover tile. Its
 `effective_parameters.json` records the production configuration it was built
 with — `hmax = 150`, `isotropy = 0.02`, `downsample = 3`, `sigma = 3` — and the
 full 20-year horizon, so a solver run against it is not a smoke test and will
