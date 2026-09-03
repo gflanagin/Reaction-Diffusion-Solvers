@@ -46,6 +46,12 @@ if str(UTILITIES_DIR) not in sys.path:
     sys.path.insert(0, str(UTILITIES_DIR))
 
 from block_solver import CompartmentBlockSolver  # noqa: E402
+from disease_spinup import (  # noqa: E402
+    default_disease_paths,
+    disease_initial_state,
+    disease_signature,
+    run_disease_spinup,
+)
 from mesh_bundle import add_bundle_arguments, resolve_input_files  # noqa: E402
 from shared_parameters import (  # noqa: E402
     land_cover_to_carrying_capacity,
@@ -421,16 +427,64 @@ update_progress(0, total_steps)
 # per step is pure overhead over a thousand-step run.
 L = assemble_vector(l_form)
 
-for i in range(total_steps):
+
+def advance_one_step():
+    """One uncontrolled IMEX step, U0 -> U0. Shared with the spin-up."""
     with L.localForm() as L_local:
         L_local.set(0.0)
     assemble_vector(L, l_form)
     L.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-
     solver.solve(L, U1)
-
     U0.x.array[:] = U1.x.array
     U0.x.scatter_forward()
+
+############################
+# disease spin-up
+#
+# Advance the uncontrolled system to an observed prevalence and restart the
+# clock there, so that the twenty-year window describes an established
+# epizootic rather than an introduction. The control driver uses the same
+# cached state, which is what keeps this run usable as its do-nothing
+# baseline. See utilities/disease_spinup.py.
+############################
+if bool(spatial_parameters["disease_spinup"]["enabled"]):
+    _uS_p, _uI_p, _uD_p, _uE_p = ufl.split(U0)
+    _infected_form = fem.form((_uI_p + _uD_p) * dx)
+    _deer_form = fem.form((_uS_p + _uI_p + _uD_p) * dx)
+
+    def _prevalence():
+        infected = MPI.COMM_WORLD.allreduce(
+            fem.assemble_scalar(_infected_form), op=MPI.SUM
+        )
+        total = MPI.COMM_WORLD.allreduce(
+            fem.assemble_scalar(_deer_form), op=MPI.SUM
+        )
+        return infected / total if total > 0.0 else 0.0
+
+    _disease_array_path, _disease_signature_path = default_disease_paths(
+        mesh_path
+    )
+    if args.disease_state is not None:
+        _disease_array_path = Path(args.disease_state).expanduser().resolve()
+        _disease_signature_path = _disease_array_path.with_suffix(".json")
+    _expected = disease_signature(
+        domain, K_func.x.array, lcD_values, S_equilibrium_values,
+        spatial_parameters,
+    )
+    U0.x.array[:] = disease_initial_state(
+        _expected, U0.x.array.size,
+        lambda: run_disease_spinup(
+            advance_one_step, _prevalence, lambda: U0.x.array.copy(),
+            spatial_parameters, comm=MPI.COMM_WORLD,
+        ),
+        _disease_array_path, _disease_signature_path,
+        comm=MPI.COMM_WORLD, recompute=args.recompute_disease_state,
+    )
+    U0.x.scatter_forward()
+    write_outputs(0.0)
+
+for i in range(total_steps):
+    advance_one_step()
 
     if i % 3 == 0:
         write_outputs((i + 1) * dt)

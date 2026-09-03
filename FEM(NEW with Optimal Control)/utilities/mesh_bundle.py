@@ -47,6 +47,23 @@ def add_bundle_arguments(parser):
             "exists."
         ),
     )
+    parser.add_argument(
+        "--disease-state",
+        default=None,
+        help=(
+            "Path to the cached spun-up epizootic used as the initial "
+            "condition. Defaults to disease_initial_state.npy beside the "
+            "mesh; written there if it has to be computed."
+        ),
+    )
+    parser.add_argument(
+        "--recompute-disease-state",
+        action="store_true",
+        help=(
+            "Re-run the disease spin-up even if a matching cached state "
+            "exists."
+        ),
+    )
     return parser
 
 

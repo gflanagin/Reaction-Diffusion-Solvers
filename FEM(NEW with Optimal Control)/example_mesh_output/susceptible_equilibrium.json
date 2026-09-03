@@ -1,0 +1,22 @@
+{
+  "inputs": {
+    "geometry_digest": "a6f74c7c5a097c40",
+    "carrying_capacity_digest": "133236d53c7d2edf",
+    "diffusivity_digest": "156615dadf56eec5",
+    "node_count": 38980,
+    "intrinsic_growth_rate": 0.35,
+    "kappa": 4000000.0,
+    "isotropy": 0.02,
+    "activation_steepness": 50.0,
+    "activation_cosine_threshold": 0.96,
+    "susceptible_diffusion_scale": 1.0,
+    "time_step_years": 0.02,
+    "drift_tolerance": 1e-05
+  },
+  "result": {
+    "converged": true,
+    "years_run": 27.12,
+    "steps_run": 1356,
+    "final_drift_per_year": 9.943353476149497e-06
+  }
+}

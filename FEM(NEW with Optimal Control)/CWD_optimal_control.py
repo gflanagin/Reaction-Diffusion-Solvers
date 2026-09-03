@@ -616,6 +616,8 @@ def main():
         mesh_path, classes_path, diffusivity_path, spatial_parameters, comm,
         equilibrium_array_path=args.susceptible_equilibrium,
         recompute_equilibrium=args.recompute_equilibrium,
+        disease_state_path=args.disease_state,
+        recompute_disease_state=args.recompute_disease_state,
     )
 
     reporter.line(

@@ -89,6 +89,48 @@ SUSCEPTIBLE_SPINUP_DEFAULTS = {
 }
 
 
+# Defaults for the disease spin-up. Same contract as the block above: a
+# parameter file written before this step existed is still accepted. See
+# utilities/disease_spinup.py for why the step exists -- briefly, it advances
+# the uncontrolled epizootic to an observed prevalence so that the planning
+# horizon describes an established outbreak rather than an introduction.
+DISEASE_SPINUP_DEFAULTS = {
+    "enabled": True,
+    # The prevalence the spin-up stops at, as a fraction of total deer. This is
+    # the one genuinely free choice in the initial condition, and it should be
+    # set from surveillance for the herd being modelled.
+    "target_prevalence": 0.05,
+    # A cap, not a target. Generous because the spin-up is precomputation, paid
+    # once and cached; at a low R0 the run is long in simulated time but is not
+    # part of the optimisation.
+    "max_duration_years": 400.0,
+    # null means "use time.time_step_years".
+    "time_step_years": None,
+}
+
+
+def _validate_disease_spinup(parameters):
+    """Fill in disease-spinup defaults in place, then range-check them."""
+    spinup = dict(DISEASE_SPINUP_DEFAULTS)
+    spinup.update(parameters.get("disease_spinup", {}))
+    parameters["disease_spinup"] = spinup
+
+    target = float(spinup["target_prevalence"])
+    if not 0.0 < target < 1.0:
+        raise ValueError(
+            "disease_spinup.target_prevalence must lie strictly between 0 and 1"
+        )
+    if float(spinup["max_duration_years"]) <= 0:
+        raise ValueError("disease_spinup.max_duration_years must be positive")
+    if spinup["time_step_years"] is not None:
+        if float(spinup["time_step_years"]) <= 0:
+            raise ValueError(
+                "disease_spinup.time_step_years must be positive, or null to "
+                "reuse time.time_step_years"
+            )
+    return spinup
+
+
 def _validate_susceptible_spinup(parameters):
     """Fill in spin-up defaults in place, then range-check them."""
     spinup = dict(SUSCEPTIBLE_SPINUP_DEFAULTS)
@@ -329,6 +371,7 @@ def load_parameters(path=DEFAULT_PARAMETERS):
 
     _validate_reaction(parameters)
     _validate_susceptible_spinup(parameters)
+    _validate_disease_spinup(parameters)
     _validate_optimal_control(parameters)
 
     return parameters

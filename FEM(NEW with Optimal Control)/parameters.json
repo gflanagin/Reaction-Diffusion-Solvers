@@ -21,13 +21,13 @@
     }
   },
   "reaction": {
-    "clinical_removal_rate": 0.981,
-    "infection_to_clinical_rate": 1.926,
-    "direct_transmission_rate": 0.0981,
+    "clinical_removal_rate": 0.863,
+    "infection_to_clinical_rate": 1.693,
+    "direct_transmission_rate": 0.08436,
     "intrinsic_growth_rate": 0.35,
     "environmental_shedding_rate": 1.0,
-    "environmental_decay_rate": 0.5,
-    "environmental_transmission_rate": 0.04905,
+    "environmental_decay_rate": 0.15,
+    "environmental_transmission_rate": 0.07365,
     "_notes": {
       "_compartment_mapping": "Almberg et al. (2011) resolve four host stages: exposed (non-shedding), infectious (shedding, pre-clinical), clinical (shedding), and dead. This model has two infected classes, so their exposed stage maps onto I and their infectious + clinical stages are lumped into R. R is therefore the SHEDDING class, of which the terminal clinical phase is a sub-part; it is not the clinical class alone.",
       "infection_to_clinical_rate": "[LIT] sigma = 1/(exposed period). Almberg et al. (2011): mean exposed (non-shedding) period 27 weeks, range 15-35. 52/27 = 1.926/yr, i.e. a mean latency of 0.52 yr. Range implied by their bounds: 1.49-3.47/yr. PREVIOUS VALUE 13.036/yr was 1/(28 days) - a red fox rabies latency, not a CWD one.",
@@ -44,7 +44,7 @@
   },
   "optimal_control": {
     "cost_shedding": 1.0,
-    "cost_environment": 0.5,
+    "cost_environment": 0.15,
     "cost_control": 2.0,
     "cost_control_l1": 0.0,
     "control_block_years": 1.0,
@@ -122,7 +122,7 @@
     "compartment_scales": {
       "susceptible": 1.0,
       "infected": 1.0,
-      "dying": 0.3
+      "dying": 0.8
     },
     "_notes": {
       "_units": "m^2/yr, because mesh coordinates are metres. kappa now carries the ENTIRE physical magnitude and compartment_scales are dimensionless mobility ratios. Previously the magnitude was split arbitrarily between kappa = 200 and compartment_scales = 100.",
@@ -158,48 +158,60 @@
       "0": 0.5,
       "11": 0.01,
       "12": 0.3,
-      "21": 0.6,
-      "22": 0.4,
-      "23": 0.15,
-      "24": 0.02,
+      "21": 0.9,
+      "22": 0.7,
+      "23": 0.4,
+      "24": 0.1,
       "31": 0.9,
-      "41": 0.7,
-      "42": 0.6,
-      "43": 0.65,
-      "52": 0.8,
-      "71": 1.0,
-      "81": 1.0,
-      "82": 0.9,
-      "90": 0.5,
-      "95": 0.35
+      "41": 1.0,
+      "42": 0.62,
+      "43": 0.76,
+      "52": 0.81,
+      "71": 0.8,
+      "81": 0.15,
+      "82": 0.57,
+      "90": 0.73,
+      "95": 0.46
     },
-    "carrying_capacity_base": 10.0,
+    "carrying_capacity_base": 3.0,
     "carrying_capacity_fraction_default": 0.5,
     "carrying_capacity_fractions": {
       "0": 0.5,
       "11": 0.0,
       "12": 0.0,
-      "21": 0.9,
-      "22": 0.6,
-      "23": 0.25,
-      "24": 0.05,
+      "21": 0.5,
+      "22": 0.35,
+      "23": 0.15,
+      "24": 0.03,
       "31": 0.1,
-      "41": 1.0,
-      "42": 0.6,
-      "43": 0.95,
-      "52": 0.85,
-      "71": 0.5,
-      "81": 0.7,
-      "82": 0.75,
-      "90": 0.9,
-      "95": 0.35
+      "41": 0.75,
+      "42": 0.85,
+      "43": 0.8,
+      "52": 1.0,
+      "71": 0.8,
+      "81": 0.6,
+      "82": 0.35,
+      "90": 0.95,
+      "95": 0.3
     },
     "_notes": {
       "carrying_capacity_base": "[GUESS] K_0 = 10 deer/km^2 (about 26 deer/mi^2) in the best habitat class, giving a landscape mean of roughly 6-8 deer/km^2 once the fractions below are applied. This is a high but attainable density for a Midwestern or eastern white-tailed deer herd. It is REGION-SPECIFIC and should be replaced with the state agency's overwinter density estimate for the actual study area. PREVIOUS VALUE 2.0 deer/km^2 is a boreal or heavily-hunted-herd density, roughly five times too low for the habitat this model is aimed at. Note that beta_1 and beta_2 were back-solved from this value (see reaction._notes._calibration_identity) and must be rescaled if it changes.",
       "_two_tables_measure_different_things": "carrying_capacity_fractions measures HABITAT QUALITY (how many deer a cover type supports); diffusivity measures PERMEABILITY (how readily deer move through it). These are anti-correlated for several classes and must not be collapsed into one table. Open grassland is highly permeable but poor habitat - deer cross it quickly and do not linger. Woody wetlands are prime cover and browse but slow to move through. The previous file had grassland at the top of BOTH tables and woody wetlands near the bottom of both, which is backwards for white-tailed deer on the habitat side.",
-      "carrying_capacity_fractions": "[GUESS] Expert judgement from white-tailed deer habitat ecology; no fitted source. Deciduous and mixed forest and their edges rank highest (1.0, 0.95); woody wetlands are prime cover and winter browse (0.9, RAISED from 0.35); developed open space - parks, golf courses, exurban lawn-and-woodlot mosaic - supports famously high suburban deer densities (0.9); shrub/scrub is excellent browse (0.85); cropland and pasture provide seasonal forage but no cover, so they depend on adjacent edge (0.75, 0.7); pure grassland offers little browse and no cover (0.5, LOWERED from 1.0); evergreen stands are poor forage but important thermal cover (0.6); barren rock and sand support almost nothing (0.1, LOWERED from 0.4); ice and snow and open water are zero. Calibrate against regional density estimates stratified by cover type.",
-      "diffusivity": "[GUESS] Expert judgement; no fitted source. Values are dimensionless multipliers on kappa, normalized so that the most permeable classes (grassland, pasture) sit at 1.0. Open, unobstructed cover is most permeable; forest and shrub impose moderate resistance; wetlands and dense development impose heavy resistance; high-intensity development is near-impermeable. Open water at 0.01 (RAISED from 0.0001) treats large water bodies as strong but not absolute barriers, since deer do swim - the previous value both overstated the barrier and, because this table drives the mmg mesh metric, forced an extremely fine mesh along every shoreline.",
+      "carrying_capacity_fractions": "[LIT/GUESS - mixed provenance] Dimensionless habitat scaling in K(x)=K0*c(x), normalized so the best mule deer cover sits at 1.0. The forage-bearing classes 42, 52, 90, 71 and 41 are derived from the GPS-estimated winter motilities of Garlick et al. 2013 (J Math Biol 69:369) Table 2: their model is ecological diffusion, in which the steady-state density is S = C/mu, so relative density is proportional to 1/motility and their per-cover motilities are a direct measure of relative habitat use by mule deer. Male and female values are combined at the 15-bucks-per-100-does ratio they report, and LANDFIRE EVTs are aggregated to NLCD classes by area-weighted mean of 1/mu. Those five classes cover 91% of their study area and are the only ones with enough GPS returns to trust; Garlick et al. warn explicitly that sparse classes are poorly resolved, so 43, 81, 82 and the developed classes are judgement informed by, not taken from, their values. Two classes are deliberately overridden: residence time measures USE, not CAPACITY, and their figures put barren land at 0.49 and open water at 0.97, which reflect rugged escape terrain and misclassified dry washes rather than forage. Both are set from forage availability instead. Relative to a white-tailed column the systematic differences are that shrub/scrub and evergreen (pinyon-juniper, ponderosa) rise to the top, grassland rises sharply because mule deer occupy shrub-grass mosaics that offer white-tails no cover, and deciduous forest, agriculture and developed land all fall.",
+      "diffusivity": "[LIT/GUESS - mixed provenance, see the land-cover subsection of the write-up] Dimensionless multipliers on kappa, normalized so the most permeable class sits at 1.0. The terrestrial classes (41, 42, 43, 52, 71, 81, 82, 90, 95) are derived from the NLCD-keyed log-diffusion coefficients of Mandujano Reyes et al. 2025 (Environmetrics 36:e2901) as exp(alpha_class), normalized to the largest of them. Their model and this one both place the coefficient in divergence form, div(D grad .), so the class-to-class ratios transfer directly; note this is NOT ecological diffusion, Laplacian(mu u), whose coefficient is a motility with the opposite relation to residence. Coefficients for 42, 52, 71, 81, 90, 95 are individually significant at 95%; those for 41, 43, 82 are not. Two classes are deliberately NOT taken from that fit. Open water is held at 0.01: their estimate implies ~0.20, but at 30 m resolution that class is dominated by streams and ponds deer cross trivially, whereas the water bodies on our mesh are barriers, and disease crosses water by routes that are not deer movement. A hard zero is avoided because it would make the diffusion tensor singular over water cells. The developed classes (21-24) keep an imposed gradient decreasing with intensity: their aggregate developed coefficient is ~14x the terrestrial maximum, which is not credible as deer movement and most plausibly reflects human-mediated spread absorbed into a movement coefficient. Classes 0, 12 and 31 are not in the fit and remain expert judgement.",
       "_defaults": "diffusivity_default and carrying_capacity_fraction_default apply to class codes absent from the tables above; both LOWERED from 1.0 to 0.5 so that unmapped or nodata cells default to a mid-range value rather than to prime, maximally permeable habitat."
+    }
+  },
+  "disease_spinup": {
+    "enabled": true,
+    "target_prevalence": 0.05,
+    "max_duration_years": 400.0,
+    "time_step_years": null,
+    "_notes": {
+      "enabled": "[NUMERICAL] When true the initial condition for all four compartments is produced by advancing the uncontrolled system from the index-case foci until domain-wide prevalence reaches target_prevalence, rather than starting the run at the foci themselves. Set false to model an introduction instead of an established epizootic.",
+      "target_prevalence": "[GUESS] 0.05. The one free choice in the initial condition and an observable, so it should be set from surveillance for the herd being modelled. Geremia et al. 2015 report 0.04 (2010-11) and 0.08 (1997-2002) for the Red Feather-Poudre herd; Miller et al. 2008 report about 0.25 at Table Mesa. 0.05 sits inside the observed range and below the endemic equilibrium for the adopted R0, so the epizootic is still growing when the control clock starts, which is where a cull decision has leverage.",
+      "max_duration_years": "[NUMERICAL] A cap, not a target. The spin-up is precomputation, paid once per mesh bundle and cached, so a generous cap costs little; hitting it means the target was not reached and the solver warns rather than silently using the shortfall.",
+      "time_step_years": "[NUMERICAL] null reuses time.time_step_years."
     }
   }
 }

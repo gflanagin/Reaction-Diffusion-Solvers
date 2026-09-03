@@ -405,12 +405,32 @@ relief across less than 4 km — which is why it makes a useful test case for th
 slope-dependent anisotropic tensor: much of the domain is steep enough to sit
 well past the `activation_cosine_threshold` transition.
 
-Be aware that it is **not** representative white-tailed deer habitat. Half the
-nodes are grassland or herbaceous (class 71) and a third are barren rock (31),
-with only 12% evergreen forest (42) — the mesh is largely at or above treeline,
-whereas the `K₀ = 10` deer/km² of `parameters.json` describes a Midwestern or
-eastern herd. Treat this bundle as a geometry and pipeline fixture, not as an
-ecologically meaningful scenario.
+Colorado is a well-motivated choice of state: CWD was first identified there in
+captive deer in the 1960s and is now endemic in wild herds across much of it.
+Two of the four CWD sources this model draws on — Miller et al. (2004, 2006) —
+are mule deer studies, and the adopted environmental decay rate `δ = 0.5/yr`,
+which the write-up calls the single most consequential parameter in the model,
+rests on Miller et al. (2004) directly.
+
+Two mismatches are worth keeping in view all the same, and both are about the
+parameters rather than the geography:
+
+- **Species.** The reaction parameters are white-tailed deer values — Almberg
+  et al. (2011) stage durations, Wasserberg et al. (2009) for the cull bound.
+  Colorado's CWD hosts are overwhelmingly mule deer and elk; white-tailed deer
+  are scarce in the state and effectively absent from the San Juans at this
+  elevation. The disease parameters transfer better across cervids than the
+  demographic ones do.
+- **Season.** Half the nodes are grassland or herbaceous (class 71) and a third
+  are barren rock (31), with only 12% evergreen forest (42): the mesh is
+  largely at or above treeline. That band is summer range. The model has no
+  seasonality and no-flux boundaries, so it describes a herd resident there
+  year-round, which nothing at 3,300–4,100 m is.
+
+So the bundle is a sound geometry and pipeline fixture, and the region is a
+reasonable one for CWD; it is the species parameterization and the missing
+seasonal migration, not the location, that stop a run on it being read as an
+ecological result.
 
 ### What it holds
 

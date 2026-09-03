@@ -92,6 +92,12 @@ from susceptible_spinup import (  # noqa: E402
     default_equilibrium_paths,
     susceptible_initial_condition,
 )
+from disease_spinup import (  # noqa: E402
+    default_disease_paths,
+    disease_initial_state,
+    disease_signature,
+    run_disease_spinup,
+)
 
 
 # Every form that participates in the adjoint identity -- the forward
@@ -112,7 +118,8 @@ class CWDControlProblem:
     def __init__(self, mesh_path, classes_path, diffusivity_path,
                  spatial_parameters, comm=MPI.COMM_WORLD,
                  equilibrium_array_path=None, equilibrium_signature_path=None,
-                 recompute_equilibrium=False):
+                 recompute_equilibrium=False, disease_state_path=None,
+                 recompute_disease_state=False):
         self.comm = comm
         self.parameters = spatial_parameters
 
@@ -139,6 +146,23 @@ class CWDControlProblem:
             )
         )
         self.recompute_equilibrium = bool(recompute_equilibrium)
+
+        # Cached spun-up epizootic. Same reasoning as the susceptible field: it
+        # belongs to the mesh bundle plus a parameter set, not to a run.
+        default_disease_array, default_disease_signature = (
+            default_disease_paths(mesh_path)
+        )
+        self.disease_array_path = (
+            Path(disease_state_path).expanduser().resolve()
+            if disease_state_path is not None
+            else default_disease_array
+        )
+        self.disease_signature_path = (
+            default_disease_signature
+            if disease_state_path is None
+            else self.disease_array_path.with_suffix(".json")
+        )
+        self.recompute_disease_state = bool(recompute_disease_state)
 
         tensor_parameters = spatial_parameters["diffusion_tensor"]
         time_parameters = spatial_parameters["time"]
@@ -517,6 +541,14 @@ class CWDControlProblem:
         )
         self.lumped_mass = self._assemble_scalar_vector(fem.form(q * dq))
 
+        # Domain-wide prevalence, for the disease spin-up stopping test. Both
+        # integrals are over the whole mesh, so this is the population
+        # prevalence rather than a nodal average, and it is the quantity the
+        # surveillance figures the target is drawn from actually estimate.
+        uS_c, uI_c, uD_c, _uE_c = ufl.split(self.Y)
+        self.infected_mass_form = fem.form((uI_c + uD_c) * dq)
+        self.deer_mass_form = fem.form((uS_c + uI_c + uD_c) * dq)
+
         ############################
         # initial state y^0 (control-independent)
         ############################
@@ -581,6 +613,58 @@ class CWDControlProblem:
         self.Y_initial.sub(3).interpolate(
             lambda x: np.zeros(x.shape[1], dtype=np.float64)
         )
+        self.Y_initial.x.scatter_forward()
+
+        if bool(self.parameters["disease_spinup"]["enabled"]):
+            self._apply_disease_spinup(S_values)
+
+    def _current_prevalence(self):
+        """Domain-wide (I + R) / (S + I + R) for the state held in self.Y."""
+        infected = self._global_sum(fem.assemble_scalar(self.infected_mass_form))
+        total = self._global_sum(fem.assemble_scalar(self.deer_mass_form))
+        return infected / total if total > 0.0 else 0.0
+
+    def _apply_disease_spinup(self, susceptible_values):
+        """Replace the index-case initial state with a spun-up epizootic.
+
+        Runs the uncontrolled system forward from the index case until
+        domain-wide prevalence reaches disease_spinup.target_prevalence, and
+        adopts that state as y^0. The control is identically zero throughout,
+        so this is the do-nothing trajectory and the resulting state is the
+        correct common starting point for the controlled and uncontrolled
+        drivers alike. See utilities/disease_spinup.py.
+        """
+        expected = disease_signature(
+            self.domain, self.K_func.x.array, self.lcD_values,
+            susceptible_values, self.parameters,
+        )
+
+        def compute():
+            # Start from the index case and step with v = 0. The zero control
+            # matters: state_rhs_form reads v_func, which the optimizer will
+            # later overwrite.
+            self.Y.x.array[:] = self.Y_initial.x.array
+            self.Y.x.scatter_forward()
+            self.v_func.x.array[:] = 0.0
+            self.v_func.x.scatter_forward()
+
+            def advance():
+                self._solve_block(self.state_rhs_form, self.Y_next, "state")
+                self.Y.x.array[:] = self.Y_next.x.array
+                self.Y.x.scatter_forward()
+
+            return run_disease_spinup(
+                advance, self._current_prevalence,
+                lambda: self.Y.x.array.copy(),
+                self.parameters, comm=self.comm,
+            )
+
+        values = disease_initial_state(
+            expected, self.Y_initial.x.array.size, compute,
+            self.disease_array_path, self.disease_signature_path,
+            comm=self.comm, recompute=self.recompute_disease_state,
+        )
+        self.Y_initial.x.array[:] = values
         self.Y_initial.x.scatter_forward()
 
     # -------------------------------------------------------- linear algebra
